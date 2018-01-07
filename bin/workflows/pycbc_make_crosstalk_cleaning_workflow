@@ -31,7 +31,7 @@ import datetime
 import lal, sys
 from pycbc.results import create_versioning_page, save_fig_with_metadata, two_column_layout, layout
 #from pycbc.workflow.crosstalk_clean import CrosstalkTransferFunctionExecutable
-from pycbc.workflow.core import Executable, File, FileList, Node
+from pycbc.workflow.core import Executable, File, FileList, Node, make_analysis_dir
 
 class CrosstalkTransferFunctionExecutable(Executable):
     """Class for running pycbc_banksim
@@ -44,13 +44,15 @@ class CrosstalkTransferFunctionExecutable(Executable):
 def create_tf_node(workflow, segment, extra_tags=None):
     if extra_tags is None:
         extra_tags = []
+    make_analysis_dir('tf_files')
     exe = CrosstalkTransferFunctionExecutable(
-               workflow.cp, 'crosstalk_compute_tf',
+               workflow.cp, 'pycbc_tf_measure',
                ifos='H1', out_dir='tf_files',
                tags=None)
     node = exe.create_node()
     node.add_opt('--gps-start-time', segment[0])
     node.add_opt('--gps-end-time', segment[1])
+    node.add_opt('--strain-frame-type', 'H1_HOFT_C00')
     for section in workflow.cp.get_subsections('aux_channels'):
         chan = workflow.cp.get('aux_channels-'+section,'aux_chan_group')
         lines = workflow.cp.get('aux_channels-'+section,'lines')
@@ -66,7 +68,7 @@ def create_clean_node(workflow, tf_file, extra_tags=None):
     if extra_tags is None:
         extra_tags = []
     exe = CrosstalkTransferFunctionExecutable(
-               workflow.cp, 'crosstalk_clean_strain',
+               workflow.cp, 'pycbc_clean_strain',
                ifos='H1', out_dir='clean_data',
                tags=None)
     node = exe.create_node()

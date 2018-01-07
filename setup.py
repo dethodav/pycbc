@@ -480,6 +480,8 @@ setup (
                'bin/workflows/pycbc_make_psd_estimation_workflow',
                'bin/workflows/pycbc_create_bank_verifier_workflow',
                'bin/workflows/pycbc_make_crosstalk_cleaning_workflow',
+               'bin/pycbc_tf_measure',
+               'bin/pycbc_clean_strain',
                'bin/pycbc_compress_bank',
                'bin/pycbc_ringinj',
                'tools/einsteinathome/pycbc_build_eah.sh'

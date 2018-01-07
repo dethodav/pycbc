@@ -1,0 +1,174 @@
+#!/usr/bin/env python
+import numpy as np
+import scipy.signal as sig
+from argparse import ArgumentParser
+import os
+import h5py
+from datetime import datetime
+import math
+import logging
+import pycbc
+
+#specialty cleaning functions
+from pycbc.filter import asd2
+
+#argument class to parse aux group information
+def chan_group(arg):
+    group_lines_split = arg.split('[')
+    group_lines_all = group_lines_split[-1][1:].split('{')
+    group_lines = [map(float,line_pair[0:-2].split(',')) for line_pair in group_lines_all]
+    group_name = group_lines_split[0].split(',')[0]
+    group_chan = group_lines_split[0].split(',')[1:-1]
+    group_list = [group_name,group_chan,group_lines]
+    return group_list
+
+logging.basicConfig(format='%(asctime)s : %(message)s', level=logging.INFO)
+logging.info("Starting up")
+    
+
+ap = ArgumentParser(description='For a given set of aux channels, the '+
+                'uncorrelated transfer functions are calculated and written '+
+                'to disk. This is done for all time-tiles in a given duration.')
+ap.add_argument('--gps-start-time',type=int,required=True,
+                help='Start time to calculate the transfer functions. '+
+                'Note that there is an initial loss of time due to corruption.')
+ap.add_argument('--gps-end-time',type=int,required=True,
+                help='End time to calculate the transfer functions. '+
+                'Note that there is an final loss of time due to corruption.')
+ap.add_argument('--aux-chan-group',action='append',type=chan_group,
+                help='List of aux channels to use for cleaning')
+ap.add_argument('--ifo',required=True,
+                help='IFO')
+ap.add_argument('--output-file', required=True,
+                help='Name of output transfer fucntion file')
+ap.add_argument('--gate-file',
+                help='Path to gating file')
+ap.add_argument('--tf-dur', default=1024,type=int,
+                help='Duration of each chunk to apply transfer functions. '+
+                'The time that each transfer function is measured over is '+
+                'tf-dur + 2*filter-length - 2. (in seconds)')
+ap.add_argument('--filter-length', default=1,type=int,
+                help='Duration of each filter to be used in cleaning process. '+
+                '(in seconds)')
+ap.add_argument('--strain-frame-type',
+                help='Frame type of input strain')
+ap.add_argument("-V", "--verbose", action="store_true",
+                  help="print extra debugging information", default=True )
+args = ap.parse_args()
+
+
+cut = 2
+filter_df = 1./args.filter_length
+
+#This is the data loss due to bandpassing, different from 
+#applying the FIR filter at the end
+bandpass_cut = 2
+
+#Input information, passed as arguments
+gating_file = args.gate_file
+ifo = args.ifo
+start_data=args.gps_start_time+cut
+end_data=args.gps_end_time-cut
+duration_tf = args.tf_dur
+duration_data = end_data - start_data
+
+aux_chan_list = sum([group[1] for group in args.aux_chan_group],[])
+
+#strain is bandpassed 20 Hz in from this
+#Should be given as argument in future
+tf_low_freq = 5
+
+#Sets up time periods to calculate transfer function
+#Removes chunks that are not a subset of the start-end segment
+start_list = range(start_data, end_data, duration_tf/2)
+i = 0
+while i < len(start_list):
+    if (start_list[i]+duration_tf) > end_data:
+        start_list.pop(i)
+    else:
+        i+=1
+#If start list is empty (duration_tf > science_segment)
+#Entire segment used for tf measurement
+if len(start_list)==0:
+    start_list.append(start_data)
+    #largest power of 2 < duration
+    duration_tf = 2 ** int(math.log(duration_data, 2)) 
+    print "TF duration too long, new duration is", duration_tf
+
+if duration_tf < args.filter_length:
+    print "Duration of tf measurement longer than filter length"
+    print "New filter length is", duration_tf
+    filter_df = 1 / float(duration_tf)
+
+#Inputs gate file (if given)
+if args.gate_file:
+    gate_params = np.loadtxt(gating_file)
+    if len(gate_params.shape) == 1:
+        gate_params = [gate_params]
+
+#inititalize files
+if args.output_file:
+    file_path = args.output_file
+else:
+    file_name = '%s_TF-%d-%d.hdf5'%(ifo,start_data,duration_data)
+    file_path = os.path.join('./',file_name)
+if os.path.exists(file_path):
+    os.remove(file_path)
+asd2.create_tf_hdf(file_path,start_list,aux_chan_list,duration_tf,args.filter_length)
+
+logging.info("Saving file to %s" % str(file_path))
+
+#loops through given start time list, calculating set of 
+#transfer functions for each chunk
+for tf_start in start_list:
+    print "Calculating TFs start at:", tf_start
+    st = tf_start
+    ed = st + duration_tf
+
+    full_tf_list = []
+
+ 
+    #calculates transfer function for 
+    #each aux group seperately
+    for group in args.aux_chan_group:
+        group_name = group[0]
+        aux_chan = group[1]
+        lines = group[2]
+        print "Looking at group", group_name
+        
+        #Read in data, set up parameters of measurement
+        print str(datetime.now()),"  reading data..."
+        data, aux_data = asd2.read_in(st,ed,aux_chan,bandpass_cut,ifo,strain_frame_type=args.strain_frame_type)
+        if args.gate_file:
+            data = asd2.apply_gate(data, gate_params)
+        tf_sample_rate = min([aux.sample_rate for aux in aux_data])
+        tf_high_freq = min(1000,1000*tf_sample_rate/2048)
+        if group_name == 'cal1':
+            tf_high_freq = 1200
+        print "Using sample rate of", tf_sample_rate
+        
+        #Bandpass data
+        print str(datetime.now()),"  bandpassing data..."
+        data_bp = (asd2.bp_chunk(data,tf_sample_rate,tf_low_freq+8,tf_high_freq-20))
+        aux_bp = [asd2.bp_chunk(data_series,tf_sample_rate,tf_low_freq,tf_high_freq) for data_series in aux_data]
+        print "aux dur", aux_bp[0].duration
+        
+        # calculate inner product terms
+        print str(datetime.now()),"  calculating TFs..."
+        tf_list_lines = [asd2.avg_inner_product(data_bp, data_series,new_df=filter_df) for data_series in aux_bp]
+        tf_list = [asd2.remove_line(data_series,lines) for data_series in tf_list_lines]
+
+        #detangle the transfer functions
+        print str(datetime.now()),"  detangling TFs..."
+        corr_dict, chan_dict = asd2.correlation_matrix(aux_bp,aux_chan,df=filter_df)
+        det_tf = asd2.detangle_tf(corr_dict, chan_dict, tf_list)
+
+        #add transfer functions for aux group to 
+        #full list of TFs
+        for tf in det_tf:
+            full_tf_list.append(tf)
+
+    #append set of transfer functions for this period
+    #to hdf file
+    asd2.append_tf_hdf(file_path,tf_start,aux_chan_list,full_tf_list)
+
