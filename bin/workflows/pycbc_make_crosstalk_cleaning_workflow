@@ -39,8 +39,6 @@ class CrosstalkTransferFunctionExecutable(Executable):
     # This can be altered if you don't always want to store output files
     current_retention_level = Executable.ALL_TRIGGERS
 
-    file_input_options = ['--psd-file', '--asd-file']
-
 def create_tf_node(workflow, segment, extra_tags=None):
     if extra_tags is None:
         extra_tags = []
@@ -53,8 +51,9 @@ def create_tf_node(workflow, segment, extra_tags=None):
     node.add_opt('--gps-start-time', segment[0])
     node.add_opt('--gps-end-time', segment[1])
     node.add_opt('--strain-frame-type', 'H1_HOFT_C00')
+    node.add_opt('--ifo', 'H1')
     for section in workflow.cp.get_subsections('aux_channels'):
-        chan = workflow.cp.get('aux_channels-'+section,'aux_chan_group')
+        chan = workflow.cp.get('aux_channels-'+section,'aux-chan-group')
         lines = workflow.cp.get('aux_channels-'+section,'lines')
         node.add_opt('--aux-chan-group', chan+','+lines) 
     node.new_output_file_opt(segment, '.hdf', '--output-file')
@@ -168,6 +167,7 @@ for ifo, segments in analyzable_segs.items():
               seg[0], seg[1]))
 
       hdf_tf_file = create_tf_node(workflow, seg, extra_tags=None)
+
 
       if ifo not in tf_files:
           tf_files[ifo] = []
