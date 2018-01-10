@@ -300,15 +300,19 @@ def apply_gate(timeseries, gate_params):
 
 def read_in(start, end, aux_chan_list, cut=1, ifo='H1',
             strain_frame_type='H1_HOFT_C00',
-            strain_channel='GDS-CALIB_STRAIN'):
+            strain_channel='GDS-CALIB_STRAIN',
+            no_strain=False):
     """Reads in the needed set of strain and aux channels. 
 
     Output as single timeseries and list of timeseries. 
     """
     start_get = start - cut
     end_get = end + cut
-    data = frame.query_and_read_frame(strain_frame_type, 
+    if no_strain = False:
+        data = frame.query_and_read_frame(strain_frame_type, 
                '%s:%s'%(ifo,strain_channel), start_get, end_get,sieve='hdfs')
+    else:
+        data = None
     aux = []
     channels = ['%s:%s' % (ifo , chan) for chan in aux_chan_list]
     multitimeseries = frame.query_and_read_frame(ifo + "_R",
