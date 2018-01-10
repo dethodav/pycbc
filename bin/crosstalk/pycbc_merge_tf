@@ -1,0 +1,64 @@
+#!/usr/bin/env python
+import numpy as np
+import scipy.signal as sig
+from argparse import ArgumentParser
+import os
+import h5py
+from pycbc.types import TimeSeries
+from pycbc import frame
+from datetime import datetime
+
+from pycbc.filter import asd2
+
+
+ap = ArgumentParser(description='Takes input hdf files copntaining individual'+ 
+                ' transfer functions and ouputs a single hdf containing'+
+                ' all said transfer functions.')
+ap.add_argument('--ifo',required=True,
+                help='IFO')
+ap.add_argument('--hdf-tf-file',required=True, nargs='+',
+                help='Path to file containing relevant noise timeseries')
+ap.add_argument('--noise-channel', required=True, nargs='+',
+                help='Noise channel(s) to read')
+ap.add_argument('--output-hdf-file', default='./MERGED-TF-FILE.hdf',
+                help='Location of output files')
+args = ap.parse_args()
+
+file_path = args.output_hdf_file
+
+
+#Read in first hdf, use as base
+tf_dict,base_start_list,base_aux_chan_list,base_duration_tf,base_filter_length = asd2.read_tf_hdf(args.tf_file,start_data,end_data)
+
+#Set up new merged hdf file
+asd2.create_tf_hdf(file_path,base_start_list,base_aux_chan_list,base_duration_tf,base_filter_length)
+
+#Insert first transfer function
+assert len(start_list) == 0
+tf_start = start_list[0]
+full_tf_list = tf_dict[tf_start]
+asd2.append_tf_hdf(file_path,tf_start,base_aux_chan_list,full_tf_list)
+
+full_start_list = [tf_start]
+
+#Read in remaining tfs and add 
+#remaining tfs one by one
+for hdf_file in hdf_input_list:
+    tf_dict,start_list,aux_chan_list,duration_tf,filter_length = asd2.read_tf_hdf(args.tf_file,start_data,end_data)
+    assert aux_chan_list == base_aux_chan_list
+    assert duration_tf == base_duration_tf
+    assert filter_length == base_filter_length
+    assert len(start_list) == 0
+    tf_start = start_list[0]
+    full_tf_list = tf_dict[tf_start]
+    full_start_list.append(tf_start)
+    asd2.append_tf_hdf(file_path,tf_start,aux_chan_list,full_tf_list)
+
+#Override start_list
+hdf_file = h5py.File(file_path, 'r+')     
+start_key = hdf_file.keys()[0] #need to figure out what this is for ifo designation
+start_dataset = hdf_file[start_key+'/times']       
+start_dataset[...] = full_start_list      
+hdf_file.close()                          
+
+

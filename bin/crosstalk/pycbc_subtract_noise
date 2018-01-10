@@ -1,0 +1,55 @@
+#!/usr/bin/env python
+import numpy as np
+import scipy.signal as sig
+from argparse import ArgumentParser
+import os
+import h5py
+from pycbc.types import TimeSeries
+from pycbc import frame
+from datetime import datetime
+
+from pycbc.filter import asd2
+
+
+ap = ArgumentParser(description='Takes input transfer functions and cleans h(t)')
+ap.add_argument('--input-frame-file',
+                help='Path to file containing relevant input timeseries')
+ap.add_argument('--input-frame-type',
+                help='Type of frame file to use as input')
+ap.add_argument('--ifo',required=True,
+                help='IFO')
+ap.add_argument('--input-channel',required=True,
+                help='Strain channel to read')
+ap.add_argument('--noise-frame-file',required=True, nargs='+',
+                help='Path to file containing relevant noise timeseries')
+ap.add_argument('--noise-channel', required=True, nargs='+',
+                help='Noise channel(s) to read')
+ap.add_argument('--output-frame-file', default='./CLEANED_FRAME.gwf',
+                help='Path of output frame file')
+ap.add_argument('--output-channel-name', default='./CLEANED_CHANNEL',
+                help='Path of output frame file')
+args = ap.parse_args()
+
+
+ifo = args.ifo
+
+noise_frames = args.noise_frame_file
+noise_channels = args.noise_channel
+assert len(noise_frames) == len(noise_channels)
+
+#read in data from frame
+if args.input_frame_file:
+    data = frame.read_frame(args.input_frame_file,'%s:%s'%(args.ifo,args.input_channel))
+elif args.args.input_frame_type:
+    noise = frame.read_frame(noise_frames[0],'%s:%s'%(ifo,noise_channels[0]))
+    data = frame.query_and_read_frame(args.input_frame_type,
+               '%s:%s'%(ifo,args.input_channel), noise.start_time, noise.end_time,sieve='hdfs')
+else:
+    sys.exit("Need either input frame or input frame type.")
+noise_data = []
+for frame_file, frame_channel in zip(noise_frames,noise_channels):
+    noise = frame.read_frame(frame_file,'%s:%s'%(args.ifo,frame_channel))
+    data = data - noise
+
+strain_fname = args.output_frame_file %
+frame.write_frame(strain_fname, '%s:%s' % (ifo, args.output_channel_name), data)

@@ -23,26 +23,17 @@ ap.add_argument('--tf-file',required=True,
                 help='Path to file containing relevant transfer functions')
 ap.add_argument('--ifo',required=True,
                 help='IFO')
-ap.add_argument('--output-frame-directory', default='./',
+ap.add_argument('--output-frame-path', default='./NOISE_FRAME.gwf',
                 help='Location of output files')
-ap.add_argument('--output-frame-type', default='C00',
-                help='Type of strain being written in the output file')
 ap.add_argument('--output-frame-channel',
                 help='Name of strain channel in output file.')
-ap.add_argument('--file-size',default=4096,
-                help='Maximum file duration (seconds)')
-ap.add_argument('--strain-frame-type',
-                help='Frame type of input strain')
-ap.add_argument('--project', action='store_true')
-ap.add_argument('--no-strain', action='store_true')
 args = ap.parse_args()
 
 #Input information, passed as arguments
-datadir=args.output_frame_directory
 ifo = args.ifo
 start_data=args.gps_start_time
 end_data=args.gps_end_time
-file_size = args.file_size
+file_size = None
 
 #Read in transfer functions and set up cleaning parameters
 tf_dict,start_list,aux_chan_list,duration_tf,filter_length = asd2.read_tf_hdf(args.tf_file,start_data,end_data)
@@ -53,12 +44,6 @@ write_size = np.ceil(float(file_size)/float(duration_tf))
 #Set buffer to none 
 #Will be added to later
 noise_data_buffer = None
-noise_channel_name = 'DCH-SUBTRACTED_NOISE'
-noise_frame_tag = 'SUBTRACTED_NOISE' 
-
-strain_data_buffer = None
-strain_channel_name = 'DCH-CLEAN_STRAIN'
-strain_frame_tag = 'HOFT_CLEANED'
 
 print "Removing noise using:"
 print aux_chan_list
@@ -76,7 +61,7 @@ for tf_start in start_list:
 
     #Grab data - This is all based on gwpy reading methods - MAKE AS A FUNCTION - ONLY READ IN NEEDED DATA
     print str(datetime.now()),"  reading data..."
-    data, aux_data = asd2.read_in(st,ed,aux_chan_list,cut,ifo,strain_frame_type=args.strain_frame_type)
+    data, aux_data = asd2.read_in(st,ed,aux_chan_list,cut,ifo,no_strain=True)
     print "data starts out with", data.duration
 
     #picks out which set of tf to use
@@ -84,27 +69,15 @@ for tf_start in start_list:
 
     #cleaning that chunk
     print str(datetime.now()),"  cleaning data..."
-    data_nojit, noise_subtracted = asd2.clean_data(data,aux_data,det_tf)
+    data_nojit, noise_subtracted = asd2.clean_data(aux_data[0],aux_data,det_tf)
 
     #Add data to the buffer, and write out if needed
     print str(datetime.now()),"  adding to buffer..."
-    if args.project:
-        noise_data_buffer = asd2.add_buffer(noise_subtracted, prev_buffer=noise_data_buffer, dur=duration_tf, 
-                                      write=True, write_size=write_size, data_dir=datadir, 
-                                      ifo=ifo, output_channel=noise_channel_name, frame_tag=noise_frame_tag)
-    if not args.no_strain:
-        strain_data_buffer = asd2.add_buffer(data_nojit, prev_buffer=strain_data_buffer, dur=duration_tf, 
-                                      write=True, write_size=write_size, data_dir=datadir, 
-                                      ifo=ifo, output_channel=strain_channel_name, frame_tag=strain_frame_tag)
+    noise_data_buffer = asd2.add_buffer(noise_subtracted, prev_buffer=noise_data_buffer, dur=duration_tf, 
+                                  write=True, write_size=file_size)
 
 #Write the remaining data tail to frames
-if args.project:
-    noise_fname = "%s/%s-%s_%s-%u-%u.gwf" % (datadir,
-               ifo, args.output_frame_type, noise_frame_tag, int(noise_data_buffer.start_time), int(noise_data_buffer.duration))
-    frame.write_frame(noise_fname, '%s:%s' % (ifo, noise_channel_name), noise_data_buffer)
+noise_fname = args.output_frame_path
+frame.write_frame(noise_fname, '%s:%s' % (ifo, args.output_frame_channel), noise_data_buffer)
 
-if not args.no_strain:
-    strain_fname = "%s/%s-%s_%s-%u-%u.gwf" % (datadir,
-               ifo, args.output_frame_type, strain_frame_tag, int(strain_data_buffer.start_time), int(strain_data_buffer.duration))
-    frame.write_frame(strain_fname, '%s:%s' % (ifo, strain_channel_name), strain_data_buffer)
 
