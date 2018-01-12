@@ -308,7 +308,7 @@ def read_in(start, end, aux_chan_list, cut=1, ifo='H1',
     """
     start_get = start - cut
     end_get = end + cut
-    if no_strain = False:
+    if no_strain == False:
         data = frame.query_and_read_frame(strain_frame_type, 
                '%s:%s'%(ifo,strain_channel), start_get, end_get,sieve='hdfs')
     else:
@@ -336,6 +336,7 @@ def add_buffer(clean_data_chunk, prev_buffer=None, dur=1024,
 
     start = clean_data_chunk.start_time
     end = start + dur / 2
+    print "dur is", dur
     if prev_buffer is None: 
         data_buffer = clean_data_chunk.time_slice(start, end).copy()
     else:
@@ -344,6 +345,8 @@ def add_buffer(clean_data_chunk, prev_buffer=None, dur=1024,
                          delta_t=1.0/strain_sample_rate,epoch=prev_end)
         hann_end = types.timeseries.TimeSeries(np.cos(phase)**2, 
                          delta_t=1.0/strain_sample_rate,epoch=start)
+        print "start time is", prev_end
+        print "hann end is", hann_end.start_time 
         data1 = prev_buffer.time_slice(prev_end, prev_buffer.end_time) * hann_end
         data2 = clean_data_chunk.time_slice(start, end) * hann_start
 
@@ -354,8 +357,10 @@ def add_buffer(clean_data_chunk, prev_buffer=None, dur=1024,
             data_buffer[olen:] = data1 + data2
         else:
             data_buffer = data1 + data2
-
-    chunk_tail = clean_data_chunk.time_slice(end, clean_data_chunk.end_time)
+    if clean_data_chunk.end_time > end:
+        chunk_tail = clean_data_chunk.time_slice(end, clean_data_chunk.end_time)
+    else:
+        chunk_tail = []
     max_dur = dur * write_size
     print "buffer duration currently", data_buffer.duration, "out of a max", max_dur
 
@@ -398,6 +403,9 @@ def append_tf_hdf(file_path,tf_start,aux_chan_list,det_tf,ifo="H1"):
     """
     hdf_file = h5py.File(file_path,'r+')
     tf_dict = dict(zip(aux_chan_list,det_tf))
+    group_exists = ('%s/tfs/%s'%(ifo,str(tf_start))) in hdf_file
+    if group_exists == False:
+        hdf_file.create_group('%s/tfs/%s'%(ifo,str(tf_start)))
     time_group = hdf_file['%s/tfs/%s'%(ifo,str(tf_start))]
     for i in range(0,len(aux_chan_list)):
         tf_dset = time_group.create_dataset('%s'%(aux_chan_list[i]),data=det_tf[i])
@@ -424,6 +432,7 @@ def read_tf_hdf(tf_file_path,start_data,end_data,ifo='H1'):
     tf_dict = {}
     start_pad = start_data #+ np.ceil(.5*filter_length)
     end_pad = end_data #- np.ceil(.5*filter_length)
+    print "The tf times are:", tf_times
     for time in tf_times:
         if (start_pad <= time < end_pad) or (start_pad < time+duration_tf <= end_pad):
             tf_list = []

@@ -20,6 +20,7 @@
 portion of strain data."""
 
 import socket
+import math
 import pycbc
 import pycbc.version
 import pycbc.workflow
@@ -38,7 +39,7 @@ class CrosstalkTransferFunctionExecutable(Executable):
     """
     current_retention_level = Executable.INTERMEDIATE_PRODUCT
 
-def create_tf_node(workflow, segment, extra_tags=None):
+def create_tf_node(workflow, segment, aux_group, extra_tags=None):
     if extra_tags is None:
         extra_tags = []
     make_analysis_dir('tf_files')
@@ -49,39 +50,30 @@ def create_tf_node(workflow, segment, extra_tags=None):
     node = exe.create_node()
     node.add_opt('--gps-start-time', segment[0])
     node.add_opt('--gps-end-time', segment[1])
-    node.add_opt('--strain-frame-type', 'H1_HOFT_C00')
-    node.add_opt('--ifo', 'H1')
-    for section in workflow.cp.get_subsections('aux_channels'):  # Have the aux chan group be given as func input, then find options here
-        chan = workflow.cp.get('aux_channels-'+section,'aux-chan-group')
-        lines = workflow.cp.get('aux_channels-'+section,'lines')
-        node.add_opt('--aux-chan-group', chan+','+lines) 
-    node.new_output_file_opt(segment, '.hdf', '--output-file')
+    #node.add_opt('--strain-frame-type', 'H1_HOFT_C00')
+    #node.add_opt('--ifo', 'H1')
+
+    chan = workflow.cp.get('aux_channels-'+aux_group,'aux-chan-group')
+    lines = workflow.cp.get('aux_channels-'+aux_group,'lines')
+    node.add_opt('--aux-chan-group', chan+','+lines) 
+
+    duration = segment[1] - segment[0]
+    node.add_opt('--tf-dur', duration)
+
+    filter_length = workflow.cp.get('aux_channels-'+aux_group,'filter-length')
+    if duration < int(filter_length):
+        filter_length = duration
+    node.add_opt('--filter-length', filter_length) 
+    node.new_output_file_opt(segment, '.hdf', '--output-file',tags=extra_tags)
     workflow += node
     return node.output_files[0]
-
-class CrosstalkCleanStrainExecutable(Executable):
-    """Class for running pycbc_clean_strain
-    """
-    current_retention_level = Executable.ALL_TRIGGERS
-
-def create_write_frame_node(workflow, tf_file, extra_tags=None):
-    if extra_tags is None:
-        extra_tags = []
-    exe = CrosstalkCleanStrainExecutable(
-               workflow.cp, 'pycbc_clean_strain',
-               ifos='H1', out_dir='clean_data',
-               tags=None)
-    node = exe.create_node()
-    node.add_input_opt('--tf-file', tf_file) 
-    node.new_output_file_opt(segment, '.gwf', '--output-file') # Need to add tags to this to be descriptive
-    workflow += node
 
 class CrosstalkMergeTransferFunctionExecutable(Executable):
     """Class for running pycbc_merge_tf
     """
     current_retention_level = Executable.MERGED_TRIGGERS
 
-def create_merged_tf_node(workflow, segment, extra_tags=None):
+def create_merged_tf_node(workflow, segment, tf_file_list, extra_tags=None):
     if extra_tags is None:
         extra_tags = []
     make_analysis_dir('tf_files')
@@ -90,16 +82,30 @@ def create_merged_tf_node(workflow, segment, extra_tags=None):
                ifos='H1', out_dir='tf_files',
                tags=None)
     node = exe.create_node()
+    node.add_input_list_opt('--hdf-tf-file', tf_file_list)
+    node.new_output_file_opt(segment, '.hdf', '--output-hdf-file')
+    workflow += node
+    return node.output_files[0]
+
+class CrosstalkCleanStrainExecutable(Executable):
+    """Class for running pycbc_clean_strain
+    """
+    current_retention_level = Executable.ALL_TRIGGERS
+
+def create_frame_write_node(workflow, segment, tf_file, extra_tags=None):
+    if extra_tags is None:
+        extra_tags = []
+    make_analysis_dir('noise_data')
+    exe = CrosstalkCleanStrainExecutable(
+               workflow.cp, 'pycbc_clean_strain',
+               ifos='H1', out_dir='noise_data',
+               tags=None)
+    node = exe.create_node()
     node.add_opt('--gps-start-time', segment[0])
     node.add_opt('--gps-end-time', segment[1])
-    node.add_opt('--strain-frame-type', 'H1_HOFT_C00')
-    node.add_opt('--ifo', 'H1')
-    for section in workflow.cp.get_subsections('aux_channels'):
-        chan = workflow.cp.get('aux_channels-'+section,'aux-chan-group')
-        lines = workflow.cp.get('aux_channels-'+section,'lines')
-        node.add_opt('--aux-chan-group', chan+','+lines)
-    node.add_input_opt('--tf-file', tf_file)  #Can this be a list?
-    node.new_output_file_opt(segment, '.hdf', '--output-file')
+    #node.add_opt('--output-frame-channel', 'NOISE-CHAN')
+    node.add_input_opt('--tf-file', tf_file)
+    node.new_output_file_opt(segment, '.gwf', '--output-frame-path', tags=extra_tags) # Need to add tags to this to be descriptive
     workflow += node
     return node.output_files[0]
 
@@ -109,25 +115,22 @@ class CrosstalkSubtractNoiseExecutable(Executable):
     # This can be altered if you don't always want to store output files
     current_retention_level = Executable.FINAL_RESULT
 
-def create_merged_frame_node(workflow, segment, extra_tags=None):
+def create_merged_frame_node(workflow, segment, noise_file_list, extra_tags=None):
     if extra_tags is None:
         extra_tags = []
-    make_analysis_dir('tf_files')
+    make_analysis_dir('output_frame_files')
     exe = CrosstalkSubtractNoiseExecutable(
                workflow.cp, 'pycbc_subtract_noise',
-               ifos='H1', out_dir='tf_files',
+               ifos='H1', out_dir='output_frame_files',
                tags=None)
     node = exe.create_node()
-    node.add_opt('--gps-start-time', segment[0])
-    node.add_opt('--gps-end-time', segment[1])
-    node.add_opt('--strain-frame-type', 'H1_HOFT_C00')
-    node.add_opt('--ifo', 'H1')
-    for section in workflow.cp.get_subsections('aux_channels'):
-        chan = workflow.cp.get('aux_channels-'+section,'aux-chan-group')
-        lines = workflow.cp.get('aux_channels-'+section,'lines')
-        node.add_opt('--aux-chan-group', chan+','+lines)
-    node.add_input_opt('--tf-file', tf_file)  #Can this be a list?
-    node.new_output_file_opt(segment, '.gwf', '--output-file')
+    #node.add_opt('--ifo', 'H1')
+    #node.add_opt('--input-channel', 'GDS-CALIB_STRAIN')
+    #node.add_opt('--input-frame-type', 'H1_HOFT_C00')
+    node.add_input_list_opt('--noise-frame-file', noise_file_list) 
+    #node.add_opt('--noise-channel', 'NOISE-CHAN')
+    node.new_output_file_opt(segment, '.gwf', '--output-frame-file')
+    #node.add_opt('--output-channel-name', 'DCH-CLEANED_CHANNEL')
     workflow += node
     return node.output_files[0]
 
@@ -214,56 +217,59 @@ datafind_files, analyzable_file, analyzable_segs, analyzable_name = \
                                                seg_file=science_seg_file)
 # ================================================================================
 
-for segments in analyzable_segs.items():
+for ifo, segments in analyzable_segs.items():
     for seg in segments:
-        tf_times = []
-        frame_times = []
-
         frame_files = {}
          
-        #Set up tf start times
-        tf_start_list = range(seg[0], seg[1], duration_tf/2)
-        i = 0
-        while i < len(tf_start_list):
-            if (tf_start_list[i]+duration_tf) > end_data:
-                tf_start_list.pop(i)
-            else:
-                i+=1
-        #If start list is empty (duration_tf > science_segment)
-        #Entire segment used for tf measurement
-        if len(tf_start_list)==0:
-            tf_start_list.append(seg[0])
-            #largest power of 2 < duration
-            duration_tf = 2 ** int(math.log(duration_data, 2))
-            print "TF duration too long, new duration is", duration_tf
+        frame_duration = int(workflow.cp.get('pycbc_clean_strain','file-size'))
 
-        # Set up frame times
-        frame_start_list = range(seg[0], seg[1], frame_duration)
+        for aux_group in workflow.cp.get_subsections('aux_channels'):
+            logging.info('Working on aux group {}'.format(aux_group))
+            duration_tf = int(workflow.cp.get('aux_channels-'+aux_group,'duration-tf'))
+            duration_data = seg[1] - seg[0] - 4
+            #Set up tf start times
+            logging.info('end is'.format(seg))
+            if duration_data < duration_tf:
+                #largest power of 2 < duration
+                duration_tf = 2 ** int(math.log(duration_data, 2))
+                print "TF duration too long, new duration is", duration_tf
+            tf_start_list = range(seg[0]+2, seg[1]-2, duration_tf/2)
+            i = 0
+            while i < len(tf_start_list):
+                if (tf_start_list[i]+duration_tf) > seg[1]:
+                    tf_start_list.pop(i)
+                else:
+                    i+=1
+
+            # Set up frame times
+            frame_start_list = range(seg[0]+2, seg[1], frame_duration)
         
-        for group in chan_group_list:
             tf_files = []
 
-            if duration_tf < args.filter_length:
-                print "Duration of tf measurement longer than filter length"
-                print "New filter length is", duration_tf
-                filter_df = 1 / float(duration_tf)`
-
-            for start_time in tf_times:
-                hdf_tf_file = create_tf_node(workflow, start_time, dur, extra_tags=None)
+            for start_time in tf_start_list:
+                segment_dur = pycbc_glue.segments.segment(start_time-2, start_time + duration_tf+2)
+                hdf_tf_file = create_tf_node(workflow, segment_dur, aux_group, extra_tags=[aux_group])
                 tf_files.append(hdf_tf_file)
+                logging.info('Created {}'.format(hdf_tf_file))
 
             #Now run the merge job
-            merged_hdf_tf_file = create_merged_tf_node(workflow, seg, tf_files,extra_tags=None)
+            merged_hdf_tf_file = create_merged_tf_node(workflow, seg, tf_files, extra_tags=[aux_group])
 
             #Take that hdf file and use it as the input to the frame write job
-            for start_time in frame_times:
-                frame_file = create_frame_write_node(workflow, start_time, frame_dur, extra_tags=None)
-                 if start_time not in frame_files:
-                     frame_files[start_time] = []
-                 frame_files[start_time].append(frame_file)
+            for start_time in frame_start_list:
+                end_time = min(start_time+frame_duration,seg[1])
+                frame_segment = pycbc_glue.segments.segment(start_time, end_time)
+                frame_file = create_frame_write_node(workflow, frame_segment, merged_hdf_tf_file, extra_tags=[aux_group])
+                if start_time not in frame_files:
+                    frame_files[start_time] = []
+                frame_files[start_time].append(frame_file)
+                logging.info('Created {}'.format(frame_file))
 
         for frame_time in frame_files:
-            merged_frame_file = create_merged_frame_node(workflow, frame_files[frame_time], extra_tags=None)
+            end_time = min(frame_time+frame_duration,seg[1])
+            frame_segment = pycbc_glue.segments.segment(frame_time, end_time)
+            logging.info('Using files {}'.format(frame_files[frame_time]))
+            merged_frame_file = create_merged_frame_node(workflow, frame_segment, frame_files[frame_time], extra_tags=None)
             logging.info('Created {}'.format(merged_frame_file))
 
 
