@@ -1,4 +1,21 @@
 #!/usr/bin/env python
+
+# Copyright (C) 2017 Derek Davis and TJ Massinger
+#
+# This program is free software; you can redistribute it and/or modify it
+# under the terms of the GNU General Public License as published by the
+# Free Software Foundation; either version 3 of the License, or (at your
+# option) any later version.
+#
+# This program is distributed in the hope that it will be useful, but
+# WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General
+# Public License for more details.
+#
+# You should have received a copy of the GNU General Public License along
+# with this program; if not, write to the Free Software Foundation, Inc.,
+# 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
+
 import numpy as np
 import scipy.signal as sig
 from argparse import ArgumentParser
@@ -7,6 +24,7 @@ import h5py
 from pycbc.types import TimeSeries
 from pycbc import frame
 from datetime import datetime
+import logging
 
 from pycbc.filter import asd2
 
@@ -28,9 +46,10 @@ start_data = 0
 end_data = 1e20
 
 #Read in first hdf, use as base
+logging.info('Reading in first file to determine constants')
 tf_dict,base_start_list,base_aux_chan_list,base_duration_tf,base_filter_length = asd2.read_tf_hdf(input_file_List[0],start_data,end_data)
 
-print "duration tf is", base_duration_tf
+logging.info("duration tf is {}".format(base_duration_tf))
 
 #Set up new merged hdf file
 asd2.create_tf_hdf(file_path,base_start_list,base_aux_chan_list,base_duration_tf,base_filter_length)
@@ -42,6 +61,8 @@ full_tf_list = tf_dict[tf_start]
 asd2.append_tf_hdf(file_path,tf_start,base_aux_chan_list,full_tf_list)
 
 full_start_list = [tf_start]
+
+logging.info("File initialized, reading in individual transfer functions")
 
 #Read in remaining tfs and add 
 #remaining tfs one by one
@@ -67,4 +88,4 @@ del hdf_file[start_key+'/times']
 start_dataset = hdf_file.create_dataset(start_key+'/times', data=full_start_list)      
 hdf_file.close()                          
 
-
+logging.info('Done')

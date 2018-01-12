@@ -482,7 +482,7 @@ setup (
                'bin/workflows/pycbc_make_crosstalk_cleaning_workflow',
                'bin/crosstalk/pycbc_subtract_noise',
                'bin/crosstalk/pycbc_tf_measure',
-               'bin/crosstalk/pycbc_clean_strain',
+               'bin/crosstalk/pycbc_project_noise_from_tf',
                'bin/crosstalk/pycbc_merge_tf',
                'bin/pycbc_compress_bank',
                'bin/pycbc_ringinj',
