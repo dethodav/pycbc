@@ -484,6 +484,7 @@ setup (
                'bin/crosstalk/pycbc_tf_measure',
                'bin/crosstalk/pycbc_project_noise_from_tf',
                'bin/crosstalk/pycbc_merge_tf',
+               'bin/crosstalk/pycbc_plot_tf',
                'bin/pycbc_compress_bank',
                'bin/pycbc_ringinj',
                'tools/einsteinathome/pycbc_build_eah.sh'

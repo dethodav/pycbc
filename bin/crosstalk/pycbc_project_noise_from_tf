@@ -1,0 +1,112 @@
+#!/usr/bin/env python
+
+# Copyright (C) 2017 Derek Davis and TJ Massinger
+#
+# This program is free software; you can redistribute it and/or modify it
+# under the terms of the GNU General Public License as published by the
+# Free Software Foundation; either version 3 of the License, or (at your
+# option) any later version.
+#
+# This program is distributed in the hope that it will be useful, but
+# WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General
+# Public License for more details.
+#
+# You should have received a copy of the GNU General Public License along
+# with this program; if not, write to the Free Software Foundation, Inc.,
+# 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
+
+import numpy as np
+import scipy.signal as sig
+from argparse import ArgumentParser
+import os
+import h5py
+from pycbc.types import TimeSeries
+from pycbc import frame
+from datetime import datetime
+import logging
+
+from pycbc.filter import crosstalk
+
+ap = ArgumentParser(description='Takes input transfer functions and cleans h(t) '+
+                'data using the relevant aux channel. The cleaned data can then '+
+                'be written to disk')
+ap.add_argument('--gps-start-time',type=int,required=True,
+                help='Start time to calculate the transfer functions. '+
+                'Note that there is an initial loss of time due to corruption.')
+ap.add_argument('--gps-end-time',type=int,required=True,
+                help='End time to calculate the transfer functions. '+
+                'Note that there is an final loss of time due to corruption.')
+ap.add_argument('--tf-file',required=True,
+                help='Path to file containing relevant transfer functions')
+ap.add_argument('--ifo',required=True,
+                help='IFO')
+ap.add_argument('--input-channel',required=True,
+                help='Strain channel to read')
+ap.add_argument('--input-frame-type',
+                help='Type of frame file to use as input')
+ap.add_argument('--output-frame-path', default='./NOISE_FRAME.gwf',
+                help='Location of output files')
+ap.add_argument('--output-frame-channel',
+                help='Name of strain channel in output file.')
+ap.add_argument('--file-size',
+                help='Seconds per output file.')
+args = ap.parse_args()
+
+logging.basicConfig(format='%(asctime)s %(message)s', level=logging.INFO)
+
+#Input information, passed as arguments
+ifo = args.ifo
+start_data=args.gps_start_time
+end_data=args.gps_end_time
+file_size = 1e100 #args.file_size
+
+#Read in transfer functions and set up cleaning parameters
+tf_dict,start_list,aux_chan_list,duration_tf,filter_length = crosstalk.read_tf_hdf(args.tf_file,start_data,end_data)
+cut = int(np.ceil(0.5*filter_length))
+write_size = np.ceil(float(file_size)/float(duration_tf))
+logging.info("duration tf is {}".format(duration_tf))
+
+#Set buffer to none 
+#Will be added to later
+noise_data_buffer = None
+
+logging.info("Removing noise using: {}".format(aux_chan_list))
+logging.info("Times to use are: {}".format(start_list))
+
+#Clean each chunk seperately
+#will be added together at end
+for tf_start in start_list:
+    logging.info("Working on data starting at:".format(tf_start))
+ 
+    #sets time for start and end
+    st = tf_start
+    ed = st + duration_tf
+    if (st == start_list[-1]) and (ed < end_data):
+        ed = end_data
+
+    #Grab data - This is all based on gwpy reading methods - MAKE AS A FUNCTION - ONLY READ IN NEEDED DATA
+    logging.info("  reading data...")
+    data, aux_data = crosstalk.read_in(st,ed,aux_chan_list,cut,ifo,
+                                  strain_frame_type=args.input_frame_type,
+                                  strain_channel=args.input_channel)
+
+    #picks out which set of tf to use
+    det_tf = tf_dict[tf_start]
+
+    #cleaning that chunk
+    logging.info("  cleaning data...")
+    data_nojit, noise_subtracted = crosstalk.clean_data(data,aux_data,det_tf)
+
+    #Add data to the buffer, and write out if needed
+    logging.info("  adding to buffer...")
+    noise_data_buffer = crosstalk.add_buffer(noise_subtracted, prev_buffer=noise_data_buffer, dur=duration_tf, 
+                                  write=True, write_size=file_size)
+
+#Write the remaining data tail to frames
+noise_output = noise_data_buffer.time_slice(start_data, end_data)
+noise_fname = args.output_frame_path
+frame.write_frame(noise_fname, '%s' % (args.output_frame_channel), noise_output)
+logging.info('Frame file {} is written!'.format(noise_fname))
+
+

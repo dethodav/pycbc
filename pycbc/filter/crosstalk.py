@@ -26,7 +26,7 @@ def inner_product(data1,data2):
     return types.frequencyseries.FrequencySeries(fdata1[:max_idx]*fdata2.conjugate()[:max_idx],
                             delta_f=1./data1.duration,epoch=data1.start_time)
 
-def avg_freq_bins(fdata,new_df,tol=1e-12):
+def avg_freq_bins(fdata,new_df,tol=2.5e-9):
     """This funtion averages near frequency bins
     Takes in and outputs a FreqSeries
     """
@@ -45,7 +45,7 @@ def avg_freq_bins(fdata,new_df,tol=1e-12):
     return types.frequencyseries.FrequencySeries(result,delta_f=new_df,
                             epoch=fdata.start_time)
 
-def avg_inner_product(d1, d2, new_df=1.,tol=1e-12):
+def avg_inner_product(d1, d2, new_df=1.,tol=2.5e-9):
     """This wraps the two previous functions
     """
     assert d1.duration==d2.duration
@@ -224,7 +224,7 @@ def remove_line(tf,line_tuples):
         tmp=clean_tf(tmp,low,high)
     return tmp
 
-def correlation_matrix(aux_data,chan_list,df=1.):
+def correlation_matrix(aux_data,chan_list,df=1.,tol=2.5e9):
     """Sets up the correlation matrix for a group of channels.
     The correlation matric is given by 
         M_ij = <n_i,n_j>, 
@@ -241,7 +241,7 @@ def correlation_matrix(aux_data,chan_list,df=1.):
         corr_list.append(np.identity(dim,dtype=complex))
     for i in range(dim):
         for j in range(dim):
-            cross_tf = avg_inner_product(aux_data[i], aux_data[j],new_df=df)
+            cross_tf = avg_inner_product(aux_data[i], aux_data[j],new_df=df, tol=tol)
             for k in range(freq_len):
                 corr_list[k][j,i]= cross_tf[k]
     corr_dict = dict(zip(np.linspace(0,freq_max,num=freq_len),corr_list))
@@ -310,11 +310,11 @@ def read_in(start, end, aux_chan_list, cut=1, ifo='H1',
     end_get = end + cut
     if no_strain == False:
         data = frame.query_and_read_frame(strain_frame_type, 
-               '%s:%s'%(ifo,strain_channel), start_get, end_get,sieve='hdfs')
+               '%s'%(strain_channel), start_get, end_get,sieve='hdfs')
     else:
         data = None
     aux = []
-    channels = ['%s:%s' % (ifo , chan) for chan in aux_chan_list]
+    channels = ['%s' % (chan) for chan in aux_chan_list]
     multitimeseries = frame.query_and_read_frame(ifo + "_R",
                                     channels,
                                     start_get, end_get,sieve='hdfs')
@@ -336,7 +336,6 @@ def add_buffer(clean_data_chunk, prev_buffer=None, dur=1024,
 
     start = clean_data_chunk.start_time
     end = start + dur / 2
-    print "dur is", dur
     if prev_buffer is None: 
         data_buffer = clean_data_chunk.time_slice(start, end).copy()
     else:
@@ -345,8 +344,6 @@ def add_buffer(clean_data_chunk, prev_buffer=None, dur=1024,
                          delta_t=1.0/strain_sample_rate,epoch=prev_end)
         hann_end = types.timeseries.TimeSeries(np.cos(phase)**2, 
                          delta_t=1.0/strain_sample_rate,epoch=start)
-        print "start time is", prev_end
-        print "hann end is", hann_end.start_time 
         data1 = prev_buffer.time_slice(prev_end, prev_buffer.end_time) * hann_end
         data2 = clean_data_chunk.time_slice(start, end) * hann_start
 
@@ -370,7 +367,7 @@ def add_buffer(clean_data_chunk, prev_buffer=None, dur=1024,
                        ifo, strain_type, frame_tag, 
                        int(data_buffer.start_time), 
                        int(data_buffer.duration))
-            channel = '%s:%s'%(ifo,output_channel)
+            channel = '%s'%(output_channel)
             frame.write_frame(fname, channel, data_buffer)
         data_buffer = chunk_tail
     else:
@@ -443,16 +440,30 @@ def read_tf_hdf(tf_file_path,start_data,end_data,ifo='H1'):
                 tf_list.append(chan_tf)
             tf_dict[time] = tf_list
             start_list.append(time)
-    if start_list[-1]+duration_tf < end_pad:
-        time = start_list[-1]
+    #if start_list[-1]+duration_tf < end_pad:
+    #    time = start_list[-1]
+    #    tf_list = []
+    #    for chan in aux_chan_list:
+    #        tf_dset = tf_file['%s/tfs/%s/%s'%(ifo,str(time),chan)]
+    #        chan_tf = types.frequencyseries.FrequencySeries(tf_dset[:],
+    #                        epoch=tf_dset.attrs['epoch'],delta_f=tf_dset.attrs['delta_f'])
+    #        tf_list.append(chan_tf)
+    #    tf_dict[time+duration_tf/2] = tf_list
+    #    start_list.append(time+duration_tf/2)
+    if len(start_list) == 0:
+        if tf_times[-1] < start_pad:
+            time = tf_times[-1]
+        else:
+            time = tf_times[0]
         tf_list = []
         for chan in aux_chan_list:
             tf_dset = tf_file['%s/tfs/%s/%s'%(ifo,str(time),chan)]
             chan_tf = types.frequencyseries.FrequencySeries(tf_dset[:],
                             epoch=tf_dset.attrs['epoch'],delta_f=tf_dset.attrs['delta_f'])
             tf_list.append(chan_tf)
-        tf_dict[time+duration_tf/2] = tf_list
-        start_list.append(time+duration_tf/2)
+        tf_dict[start_pad] = tf_list
+        start_list.append(start_pad)        
+        duration_tf = min(duration_tf, end_pad-start_pad)
     return tf_dict,start_list,aux_chan_list,duration_tf,filter_length
 
 

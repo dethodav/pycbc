@@ -31,7 +31,6 @@ import pycbc_glue.segments
 import datetime
 import lal, sys
 from pycbc.results import create_versioning_page, save_fig_with_metadata, two_column_layout, layout
-#from pycbc.workflow.crosstalk_clean import CrosstalkTransferFunctionExecutable
 from pycbc.workflow.core import Executable, File, FileList, Node, make_analysis_dir
 
 class CrosstalkTransferFunctionExecutable(Executable):
@@ -39,26 +38,25 @@ class CrosstalkTransferFunctionExecutable(Executable):
     """
     current_retention_level = Executable.INTERMEDIATE_PRODUCT
 
-def create_tf_node(workflow, segment, aux_group, extra_tags=None):
+def create_tf_node(workflow, segment, aux_group, gate_file, ifo, extra_tags=None):
     if extra_tags is None:
         extra_tags = []
     make_analysis_dir('tf_files')
     exe = CrosstalkTransferFunctionExecutable(
                workflow.cp, 'pycbc_tf_measure',
-               ifos='H1', out_dir='tf_files',
-               tags=None)
+               ifos=ifo, out_dir='tf_files',
+               tags=extra_tags)
     node = exe.create_node()
     node.add_opt('--gps-start-time', segment[0])
     node.add_opt('--gps-end-time', segment[1])
-    #node.add_opt('--strain-frame-type', 'H1_HOFT_C00')
-    #node.add_opt('--ifo', 'H1')
 
     chan = workflow.cp.get('aux_channels-'+aux_group,'aux-chan-group')
     lines = workflow.cp.get('aux_channels-'+aux_group,'lines')
-    node.add_opt('--aux-chan-group', chan+','+lines) 
+    node.add_opt('--aux-chan-group', "'"+aux_group+','+chan+','+lines+"'") 
 
-    duration = segment[1] - segment[0]
+    duration = segment[1] - segment[0]-4
     node.add_opt('--tf-dur', duration)
+    node.add_input_opt('--gate-file', gate_file)
 
     filter_length = workflow.cp.get('aux_channels-'+aux_group,'filter-length')
     if duration < int(filter_length):
@@ -73,67 +71,94 @@ class CrosstalkMergeTransferFunctionExecutable(Executable):
     """
     current_retention_level = Executable.MERGED_TRIGGERS
 
-def create_merged_tf_node(workflow, segment, tf_file_list, extra_tags=None):
+def create_merged_tf_node(workflow, segment, tf_file_list, ifo, extra_tags=None):
     if extra_tags is None:
         extra_tags = []
     make_analysis_dir('tf_files')
     exe = CrosstalkMergeTransferFunctionExecutable(
                workflow.cp, 'pycbc_merge_tf',
-               ifos='H1', out_dir='tf_files',
-               tags=None)
+               ifos=ifo, out_dir='tf_files',
+               tags=extra_tags)
     node = exe.create_node()
     node.add_input_list_opt('--hdf-tf-file', tf_file_list)
     node.new_output_file_opt(segment, '.hdf', '--output-hdf-file')
     workflow += node
     return node.output_files[0]
 
-class CrosstalkCleanStrainExecutable(Executable):
-    """Class for running pycbc_clean_strain
+class CrosstalkProjectNoiseExecutable(Executable):
+    """Class for running pycbc_project_noise_from_tf
     """
     current_retention_level = Executable.ALL_TRIGGERS
 
-def create_frame_write_node(workflow, segment, tf_file, extra_tags=None):
+def create_project_noise_node(workflow, segment, tf_file, ifo, extra_tags=None):
     if extra_tags is None:
         extra_tags = []
     make_analysis_dir('noise_data')
-    exe = CrosstalkCleanStrainExecutable(
-               workflow.cp, 'pycbc_clean_strain',
-               ifos='H1', out_dir='noise_data',
-               tags=None)
+    exe = CrosstalkProjectNoiseExecutable(
+               workflow.cp, 'pycbc_project_noise_from_tf',
+               ifos=ifo, out_dir='noise_data',
+               tags=extra_tags)
     node = exe.create_node()
     node.add_opt('--gps-start-time', segment[0])
     node.add_opt('--gps-end-time', segment[1])
-    #node.add_opt('--output-frame-channel', 'NOISE-CHAN')
     node.add_input_opt('--tf-file', tf_file)
-    node.new_output_file_opt(segment, '.gwf', '--output-frame-path', tags=extra_tags) # Need to add tags to this to be descriptive
+    node.new_output_file_opt(segment, '.gwf', '--output-frame-path', tags=extra_tags) 
     workflow += node
     return node.output_files[0]
 
 class CrosstalkSubtractNoiseExecutable(Executable):
     """Class for running pycbc_subtract_noise
     """
-    # This can be altered if you don't always want to store output files
     current_retention_level = Executable.FINAL_RESULT
 
-def create_merged_frame_node(workflow, segment, noise_file_list, extra_tags=None):
+def create_merged_frame_node(workflow, segment, noise_file_list, ifo, extra_tags=None):
     if extra_tags is None:
         extra_tags = []
     make_analysis_dir('output_frame_files')
     exe = CrosstalkSubtractNoiseExecutable(
                workflow.cp, 'pycbc_subtract_noise',
-               ifos='H1', out_dir='output_frame_files',
-               tags=None)
+               ifos=ifo, out_dir='output_frame_files',
+               tags=extra_tags)
     node = exe.create_node()
-    #node.add_opt('--ifo', 'H1')
-    #node.add_opt('--input-channel', 'GDS-CALIB_STRAIN')
-    #node.add_opt('--input-frame-type', 'H1_HOFT_C00')
     node.add_input_list_opt('--noise-frame-file', noise_file_list) 
-    #node.add_opt('--noise-channel', 'NOISE-CHAN')
-    node.new_output_file_opt(segment, '.gwf', '--output-frame-file')
-    #node.add_opt('--output-channel-name', 'DCH-CLEANED_CHANNEL')
+    store_file = node.executable.retain_files
+    frame_type = workflow.cp.get('workflow-frames','output-frame-type') 
+    fil = File(ifo[0], frame_type,
+               segment, extension='.gwf', store_file=store_file, 
+               directory=node.executable.out_dir, tags=None)
+    node.add_output_opt('--output-frame-file', fil)
     workflow += node
     return node.output_files[0]
 
+class PlotTransferFunctionExecutable(Executable):
+    """Class for running pycbc_subtract_noise
+    """
+    current_retention_level = Executable.FINAL_RESULT
+
+def create_plot_tf_node(workflow, channel, tf_file_list, outdir, ifo, extra_tags=None):
+    if extra_tags is None:
+        extra_tags = []
+    exe = PlotTransferFunctionExecutable(
+               workflow.cp, 'pycbc_plot_tf',
+               ifos=ifo, out_dir=outdir,
+               tags=extra_tags)
+    node = exe.create_node()
+    node.add_opt('--channel', channel)
+    node.add_input_list_opt('--tf-file', tf_file_list)
+    node.new_output_file_opt(workflow.analysis_time, '.png', '--outfile', tags=extra_tags)
+    workflow += node
+    return node.output_files[0]
+
+def symlink_path(f, path):
+    if f is None:
+        return
+    try:
+        os.symlink(f.storage_path, os.path.join(path, f.name))
+    except OSError:
+        pass
+
+def symlink_result(f, rdir_path):
+    symlink_path(f, rdir[rdir_path])
 
 logging.basicConfig(format='%(asctime)s:%(levelname)s : %(message)s',
                     level=logging.INFO)
@@ -155,7 +180,8 @@ finalize_workflow = pycbc.workflow.Workflow(args, args.workflow_name + '-finaliz
 
 os.chdir(args.output_dir)
 
-rdir = layout.SectionNumber('results', ['analysis_time', 'workflow'])
+rdir = layout.SectionNumber('results', ['analysis_time', 'detector_sensitivity', 'individual_frames', 
+                                        'transfer_functions', 'workflow'])
 
 pycbc.workflow.makedir(rdir.base)
 pycbc.workflow.makedir(rdir['workflow'])
@@ -176,8 +202,6 @@ logfile.setFormatter(formatter)
 logging.getLogger('').addHandler(logfile)
 logging.info("Created log file %s" % wf_log_file.storage_path)
 
-# layout list
-result_plots = []
 
 # put start / end time at top of summary page
 time = workflow.analysis_time
@@ -195,11 +219,10 @@ kwds = { 'title' : 'Search Workflow Duration (Wall Clock Time)',
                     " creation script.",
         'cmd' :' '.join(sys.argv), }
 save_fig_with_metadata(time_str, time_file.storage_path, **kwds)
-result_plots += [(time_file,)]
 
 # Get segments and find where the data is
-seg_dir = 'analysis_time/segment_data'
-pycbc.workflow.makedir(rdir[seg_dir])
+seg_dir = rdir['analysis_time/segment_data']
+pycbc.workflow.makedir(seg_dir)
 
 veto_cat_files = pycbc.workflow.get_files_for_vetoes(
         workflow, seg_dir, runtime_names=['segments-science-veto'])
@@ -215,24 +238,51 @@ datafind_files, analyzable_file, analyzable_segs, analyzable_name = \
         pycbc.workflow.setup_datafind_workflow(workflow, science_ok_segs,
                                                'datafind',
                                                seg_file=science_seg_file)
+
+# get gating file
+gate_files = pycbc.workflow.setup_gating_workflow(workflow, output_dir="gating")
+
+# make veto definer table
+vetodef_table = pycbc.workflow.make_veto_table(workflow, rdir['analysis_time/veto_definer'])
+layout.single_layout(rdir['analysis_time/veto_definer'], ([vetodef_table]))
+
 # ================================================================================
+
+# Set up noise removal workflow
+
+sing_ifo = workflow.ifos[0]
+
+finalized_frame_files = []
+finalized_frame_segments = {}
+frame_psd_segments = {}
+merged_tf_files = {}
+psd_files = []
+data_analysed_name = 'FRAME_PRODUCED'
 
 for ifo, segments in analyzable_segs.items():
     for seg in segments:
         frame_files = {}
          
-        frame_duration = int(workflow.cp.get('pycbc_clean_strain','file-size'))
+        frame_duration = int(workflow.cp.get('pycbc_project_noise_from_tf','file-size'))
 
         for aux_group in workflow.cp.get_subsections('aux_channels'):
+            if workflow.cp.has_option_tags('valid_times-'+aux_group, 'gps-start-time', tags=None):
+                valid_start = int(workflow.cp.get_opt_tags('valid_times-'+aux_group, 
+                                                 'gps-start-time', tags=None))
+                valid_end = int(workflow.cp.get_opt_tags('valid_times-'+aux_group,
+                                                 'gps-end-time', tags=None))
+                valid_segment = pycbc_glue.segments.segment(valid_start, valid_end)
+                if (seg in valid_segment) == False: 
+                    logging.warning('Aux group {} not valid during this segment'.format(aux_group))
+                    continue
             logging.info('Working on aux group {}'.format(aux_group))
             duration_tf = int(workflow.cp.get('aux_channels-'+aux_group,'duration-tf'))
             duration_data = seg[1] - seg[0] - 4
             #Set up tf start times
-            logging.info('end is'.format(seg))
             if duration_data < duration_tf:
                 #largest power of 2 < duration
                 duration_tf = 2 ** int(math.log(duration_data, 2))
-                print "TF duration too long, new duration is", duration_tf
+                logging.info('TF duration is too long, new duration is {}'.format(duration_tf))
             tf_start_list = range(seg[0]+2, seg[1]-2, duration_tf/2)
             i = 0
             while i < len(tf_start_list):
@@ -248,46 +298,94 @@ for ifo, segments in analyzable_segs.items():
 
             for start_time in tf_start_list:
                 segment_dur = pycbc_glue.segments.segment(start_time-2, start_time + duration_tf+2)
-                hdf_tf_file = create_tf_node(workflow, segment_dur, aux_group, extra_tags=[aux_group])
+                hdf_tf_file = create_tf_node(workflow, segment_dur, aux_group, gate_files[0], sing_ifo, extra_tags=[aux_group])
                 tf_files.append(hdf_tf_file)
-                logging.info('Created {}'.format(hdf_tf_file))
 
             #Now run the merge job
-            merged_hdf_tf_file = create_merged_tf_node(workflow, seg, tf_files, extra_tags=[aux_group])
+            merged_hdf_tf_file = create_merged_tf_node(workflow, seg, tf_files, sing_ifo, extra_tags=[aux_group])
+            logging.info('Created transfer function file for {} - {}'.format(seg[0],seg[1]))
+            if aux_group not in merged_tf_files:
+                merged_tf_files[aux_group] = []
+            merged_tf_files[aux_group].append(merged_hdf_tf_file)
 
             #Take that hdf file and use it as the input to the frame write job
             for start_time in frame_start_list:
                 end_time = min(start_time+frame_duration,seg[1])
                 frame_segment = pycbc_glue.segments.segment(start_time, end_time)
-                frame_file = create_frame_write_node(workflow, frame_segment, merged_hdf_tf_file, extra_tags=[aux_group])
+                frame_file = create_project_noise_node(workflow, frame_segment, merged_hdf_tf_file, sing_ifo, extra_tags=[aux_group])
                 if start_time not in frame_files:
                     frame_files[start_time] = []
                 frame_files[start_time].append(frame_file)
-                logging.info('Created {}'.format(frame_file))
 
         for frame_time in frame_files:
             end_time = min(frame_time+frame_duration,seg[1])
             frame_segment = pycbc_glue.segments.segment(frame_time, end_time)
-            logging.info('Using files {}'.format(frame_files[frame_time]))
-            merged_frame_file = create_merged_frame_node(workflow, frame_segment, frame_files[frame_time], extra_tags=None)
-            logging.info('Created {}'.format(merged_frame_file))
+            merged_frame_file = create_merged_frame_node(workflow, frame_segment, frame_files[frame_time], sing_ifo, extra_tags=None)
+            finalized_frame_files.append(merged_frame_file)
+            if ifo not in finalized_frame_segments:
+                finalized_frame_segments[ifo] = pycbc_glue.segments.segmentlist()
+            finalized_frame_segments[ifo] |= pycbc_glue.segments.segmentlist([frame_segment])
+            logging.info('Created frame file for {} - {}'.format(frame_segment[0],frame_segment[1]))
 
+            #set up segments to calculate psd over
+            if ifo not in frame_psd_segments:
+                frame_psd_segments[ifo] = pycbc_glue.segments.segmentlist()
+            psd_segs = range(frame_time, end_time, 2048)
+            psd_segs.append(end_time)
+            for item in range(0,len(psd_segs)-1):
+                seg_to_add = pycbc_glue.segments.segment(psd_segs[item],psd_segs[item+1]-1)
+                frame_psd_segments[ifo] |= pycbc_glue.segments.segmentlist([seg_to_add])
+       
+    long_frame_segments = [x for x in frame_psd_segments[ifo] if abs(x) > 700]
+    logging.info('Long segments are {}'.format(long_frame_segments))
+    psd_files += [pycbc.workflow.setup_psd_calculate(workflow, finalized_frame_files, ifo,
+              long_frame_segments, data_analysed_name, 'psds')]
+
+
+    
 
 # ================================================================================
 
+# Now set up results page jobs with finalized files
 
-pycbc.workflow.make_segments_plot(workflow,
-                                  pycbc.workflow.FileList([science_seg_file]),
-                                  seg_dir, tags=['SCIENCE_MINUS_CAT1'])
+logging.info('Setting up summary plots`')
+pycbc.workflow.makedir(rdir['detector_sensitivity'])
+spec_plot = pycbc.workflow.make_spectrum_plot(workflow, psd_files, rdir['detector_sensitivity'])
+range_plot_summ = pycbc.workflow.make_range_plot(workflow, psd_files, rdir['detector_sensitivity'],
+                       require='summ')
+range_plot_other = pycbc.workflow.make_range_plot(workflow, psd_files, rdir['detector_sensitivity'],
+                        exclude='summ')
+
+det_summ = [(spec_plot, range_plot_summ[0] if len(range_plot_summ) != 0 else None)]
+layout.two_column_layout(rdir['detector_sensitivity'],
+                     det_summ + list(layout.grouper(range_plot_other, 2)))
+
+#set up tranfer function jobs
+for aux_group in workflow.cp.get_subsections('aux_channels'):
+    if aux_group not in merged_tf_files:
+        logging.warning('Aux group {} has no transfer functions to plot'.format(aux_group))
+        continue
+    tf_plot_list = []
+    tf_dir = rdir['transfer_functions/%s'%aux_group]
+    pycbc.workflow.makedir(tf_dir)
+    chan = workflow.cp.get('aux_channels-'+aux_group,'aux-chan-group')
+    channel_list = chan.split(',')
+    for channel in channel_list:
+        tf_plot = create_plot_tf_node(workflow, channel, merged_tf_files[aux_group], 
+                  tf_dir, sing_ifo, extra_tags=[aux_group,channel[3:]])
+        tf_plot_list += [(tf_plot,)]
+        two_column_layout(tf_dir,tf_plot_list)
+
 
 # get data segments to write to segment summary XML file
-seg_summ_names    = ['DATA', 'SCIENCE_OK', 'ANALYZABLE_DATA']
-seg_summ_seglists = [science_segs, science_ok_segs, analyzable_segs]
+seg_summ_names    = ['DATA', 'SCIENCE_OK', 'ANALYZABLE_DATA', 'FRAMES_PRODUCED']
+seg_summ_seglists = [science_segs, science_ok_segs, analyzable_segs, finalized_frame_segments]
 
 # write segment summary XML file
 seg_list = []
 names = []
 ifos = []
+seg_plots = []
 for segment_list,segment_name in zip(seg_summ_seglists, seg_summ_names):
     for ifo in workflow.ifos:
         seg_list.append(segment_list[ifo])
@@ -297,15 +395,37 @@ seg_summ_file = pycbc.workflow.SegFile.from_multi_segment_list(
                    'WORKFLOW_SEGMENT_SUMMARY', seg_list, names, ifos,
                    valid_segment=workflow.analysis_time, extension='xml',
                    directory=seg_dir)
+seg_summ_plot = pycbc.workflow.make_segments_plot(workflow,
+                                  pycbc.workflow.FileList([science_seg_file]),
+                                  rdir['analysis_time'], tags=['SCIENCE_MINUS_CAT1'])
+seg_plots += [(seg_summ_plot,)]
 
 # make segment table for summary page
 seg_summ_table = pycbc.workflow.make_seg_table(workflow, [seg_summ_file],
-        seg_summ_names, seg_dir, ['SUMMARY'],
+        seg_summ_names, rdir['analysis_time'], ['SUMMARY'],
         title_text='Input and output time',
         description='This shows the total amount of input data, analyzable data, and the time for which transfer functions are produced.')
-result_plots += [(seg_summ_table,)]
+seg_plots += [(seg_summ_table,)]
 
-two_column_layout(seg_dir, result_plots)
+two_column_layout(rdir['analysis_time'], seg_plots)
+
+# make front summary page
+summ = ([(time_file,)] + [(seg_summ_plot,)] +
+        [(seg_summ_table, )] + det_summ)
+for row in summ:
+    for f in row:
+        symlink_path(f, rdir.base)
+layout.two_column_layout(rdir.base, summ)
+
+# save global config file to results directory
+base = rdir['workflow/configuration']
+pycbc.workflow.makedir(base)
+ini_file_path = os.path.join(base, 'configuration.ini')
+with open(ini_file_path, 'wb') as ini_fh:
+    container.cp.write(ini_fh)
+ini_file = pycbc.workflow.FileList([pycbc.workflow.File(workflow.ifos, '', workflow.analysis_time,
+                        file_url='file://'+ini_file_path)])
+layout.single_layout(base, ini_file)
 
 # Create versioning information
 create_versioning_page(rdir['workflow/version'], container.cp)

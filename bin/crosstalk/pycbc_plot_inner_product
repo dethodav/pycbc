@@ -1,0 +1,87 @@
+#!/bin/env python
+
+import matplotlib
+import numpy as np
+matplotlib.use('Agg')
+import matplotlib.pyplot as plt
+from asd2 import inner_product, bp_chunk
+import argparse
+import logging
+from pycbc import frame
+
+plt.rc('text', usetex=True)
+plt.rc('font', **{'family': 'serif', 'serif': ['Computer Modern']})
+plt.rc('axes', labelsize=16.0)
+plt.rc('xtick', labelsize=14.0)
+plt.rc('ytick', labelsize=14.0)
+
+parser = argparse.ArgumentParser()
+parser.add_argument('--gps-start-time', type=float, 
+                    help='GPS start time for reading data')
+parser.add_argument('--gps-end-time', type=float,
+                    help='GPS end time for reading data')
+parser.add_argument('--channel', help='Channel to read data for')
+parser.add_argument('--bp-low-freq', type=float, default=5.,
+                    help='Low frequency bound for bandpassing')
+parser.add_argument('--bp-high-freq', type=float, 
+                    help='High frequency bound for bandpassing, '
+                         'calculated automatically if not provided')
+parser.add_argument('--outfile', help='Output file to write to, name will be '
+                    'generated if not provided')
+parser.add_argument('--frame-type', help='Frame type to read from, defaults to raw frames')
+parser.add_argument('--ifo', help='H1 or L1')
+parser.add_argument('--tolerance', type=float,
+                    help='If provided, will plot max(PSD)*tolerance as horizontal line ')
+parser.add_argument('--ymin', type=float, help='Y-min for plot')
+parser.add_argument('--ymax', type=float, help='Y-max for plot')
+args = parser.parse_args()
+
+logging.basicConfig(format="%(asctime)s : %(message)s", level=logging.DEBUG)
+
+if args.frame_type:
+    ftype = args.frame_type
+else:
+    ftype = '%s_R' % args.ifo
+
+logging.info('Reading data')
+data = frame.query_and_read_frame(ftype, args.channel, args.gps_start_time,
+                                  args.gps_end_time, sieve='localhost')
+
+sample_rate = data.sample_rate
+if args.bp_high_freq:
+    bp_high_freq = args.bp_high_freq
+else:
+    bp_high_freq = min(1000,1000*sample_rate/2048)
+
+logging.info('Bandpassing data')
+data_bp = bp_chunk(data, sample_rate, args.bp_low_freq + 10, bp_high_freq - 20)
+
+autoc = inner_product(data_bp, data_bp)
+freqs = autoc.get_sample_frequencies()
+
+logging.info('Plotting')
+
+if args.ymin:
+    ymin = args.ymin
+else:
+    ymin = min(np.absolute(autoc))*0.9
+
+if args.ymax:
+    ymax = args.ymax
+else:
+    ymax = max(np.absolute(autoc))*1.1
+
+fig = plt.figure()
+ax=fig.gca()
+ax.plot(freqs.data, np.absolute(autoc))
+if args.tolerance:
+    ax.axhline(max(np.absolute(autoc))*args.tolerance)
+ax.set_xlabel('Frequency [Hz]')
+ax.set_ylabel('Power Spectral Density')
+ax.set_xscale('log')
+ax.set_title(args.channel.replace('_','-'))
+ax.grid(True, which='both')
+ax.set_xlim(10,max(freqs.data))
+ax.set_ylim(ymin, ymax)
+ax.set_yscale('log')
+plt.savefig(args.outfile)

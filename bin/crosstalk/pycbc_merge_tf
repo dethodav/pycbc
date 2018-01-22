@@ -26,7 +26,7 @@ from pycbc import frame
 from datetime import datetime
 import logging
 
-from pycbc.filter import asd2
+from pycbc.filter import crosstalk
 
 
 ap = ArgumentParser(description='Takes input hdf files copntaining individual'+ 
@@ -38,6 +38,8 @@ ap.add_argument('--output-hdf-file', default='./MERGED-TF-FILE.hdf',
                 help='Location of output files')
 args = ap.parse_args()
 
+logging.basicConfig(format='%(asctime)s %(message)s', level=logging.INFO)
+
 file_path = args.output_hdf_file
 
 input_file_List = args.hdf_tf_file
@@ -47,18 +49,18 @@ end_data = 1e20
 
 #Read in first hdf, use as base
 logging.info('Reading in first file to determine constants')
-tf_dict,base_start_list,base_aux_chan_list,base_duration_tf,base_filter_length = asd2.read_tf_hdf(input_file_List[0],start_data,end_data)
+tf_dict,base_start_list,base_aux_chan_list,base_duration_tf,base_filter_length = crosstalk.read_tf_hdf(input_file_List[0],start_data,end_data)
 
 logging.info("duration tf is {}".format(base_duration_tf))
 
 #Set up new merged hdf file
-asd2.create_tf_hdf(file_path,base_start_list,base_aux_chan_list,base_duration_tf,base_filter_length)
+crosstalk.create_tf_hdf(file_path,base_start_list,base_aux_chan_list,base_duration_tf,base_filter_length)
 
 #Insert first transfer function
 assert len(base_start_list) != 0
 tf_start = base_start_list[0]
 full_tf_list = tf_dict[tf_start]
-asd2.append_tf_hdf(file_path,tf_start,base_aux_chan_list,full_tf_list)
+crosstalk.append_tf_hdf(file_path,tf_start,base_aux_chan_list,full_tf_list)
 
 full_start_list = [tf_start]
 
@@ -67,7 +69,7 @@ logging.info("File initialized, reading in individual transfer functions")
 #Read in remaining tfs and add 
 #remaining tfs one by one
 for hdf_file in input_file_List[1:]:
-    tf_dict,start_list,aux_chan_list,duration_tf,filter_length = asd2.read_tf_hdf(hdf_file,start_data,end_data)
+    tf_dict,start_list,aux_chan_list,duration_tf,filter_length = crosstalk.read_tf_hdf(hdf_file,start_data,end_data)
     for new_chan, base_chan in zip(aux_chan_list,base_aux_chan_list):
         assert new_chan == base_chan
     assert duration_tf == base_duration_tf
@@ -76,7 +78,7 @@ for hdf_file in input_file_List[1:]:
     tf_start = start_list[0]
     full_tf_list = tf_dict[tf_start]
     full_start_list.append(tf_start)
-    asd2.append_tf_hdf(file_path,tf_start,aux_chan_list,full_tf_list)
+    crosstalk.append_tf_hdf(file_path,tf_start,aux_chan_list,full_tf_list)
 
 print full_start_list
 

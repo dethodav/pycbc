@@ -24,8 +24,9 @@ import h5py
 from pycbc.types import TimeSeries
 from pycbc import frame
 from datetime import datetime
+import logging
 
-from pycbc.filter import asd2
+from pycbc.filter import crosstalk
 
 
 ap = ArgumentParser(description='Takes input transfer functions and cleans h(t)')
@@ -47,6 +48,8 @@ ap.add_argument('--output-channel-name', default='./CLEANED_CHANNEL',
                 help='Path of output frame file')
 args = ap.parse_args()
 
+logging.basicConfig(format='%(asctime)s %(message)s', level=logging.INFO)
+
 
 ifo = args.ifo
 
@@ -58,18 +61,18 @@ assert len(noise_frames) == len(noise_channels)
 
 #read in data from frame
 if args.input_frame_file:
-    data = frame.read_frame(args.input_frame_file,'%s:%s'%(args.ifo,args.input_channel))
+    data = frame.read_frame(args.input_frame_file,'%s'%(args.input_channel))
 elif args.input_frame_type:
-    noise = frame.read_frame(noise_frames[0],'%s:%s'%(ifo,noise_channels[0]))
+    noise = frame.read_frame(noise_frames[0],'%s'%(noise_channels[0]))
     data = frame.query_and_read_frame(args.input_frame_type,
-               '%s:%s'%(ifo,args.input_channel), noise.start_time, noise.end_time,sieve='hdfs')
+               '%s'%(args.input_channel), noise.start_time, noise.end_time,sieve='hdfs')
 else:
     sys.exit("Need either input frame or input frame type.")
 noise_data = []
 for frame_file, frame_channel in zip(noise_frames,noise_channels):
-    noise = frame.read_frame(frame_file,'%s:%s'%(args.ifo,frame_channel))
+    noise = frame.read_frame(frame_file,'%s'%(frame_channel))
     data = data - noise
 
 strain_fname = args.output_frame_file
-frame.write_frame(strain_fname, '%s:%s' % (ifo, args.output_channel_name), data)
+frame.write_frame(strain_fname, '%s' % (args.output_channel_name), data)
 logging.info('Frame file {} is written!'.format(strain_fname))

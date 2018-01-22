@@ -27,7 +27,7 @@ import logging
 import pycbc
 
 #specialty cleaning functions
-from pycbc.filter import asd2
+from pycbc.filter import crosstalk
 
 #argument class to parse aux group information
 def chan_group(arg):
@@ -38,6 +38,7 @@ def chan_group(arg):
     group_chan = group_lines_split[0].split(',')[1:-1]
     group_list = [group_name,group_chan,group_lines]
     return group_list
+
 
 logging.basicConfig(format='%(asctime)s : %(message)s', level=logging.INFO)
 logging.info("Starting up")
@@ -71,6 +72,10 @@ ap.add_argument('--input-frame-type',
                 help='Frame type of input strain')
 ap.add_argument('--input-channel',
                 help='Frame type of input strain')
+ap.add_argument('--upper-frequency',
+                help='Maximum frequency to calculate transfer function')
+ap.add_argument('--tolerance',
+                help='Tolerance factor to use when calculating transfer functions.')
 ap.add_argument("-V", "--verbose", action="store_true",
                   help="print extra debugging information", default=True )
 args = ap.parse_args()
@@ -90,6 +95,12 @@ start_data=args.gps_start_time+cut
 end_data=args.gps_end_time-cut
 duration_tf = args.tf_dur
 duration_data = end_data - start_data
+
+if args.tolerance:
+    sci_list = (args.tolerance).split('e')
+    tolerance = float(sci_list[0])*10**int(sci_list[1])
+else:
+    tolerance = 0
 
 aux_chan_list = sum([group[1] for group in args.aux_chan_group],[])
 
@@ -133,14 +144,14 @@ else:
     file_path = os.path.join('./',file_name)
 if os.path.exists(file_path):
     os.remove(file_path)
-asd2.create_tf_hdf(file_path,start_list,aux_chan_list,duration_tf,args.filter_length)
+crosstalk.create_tf_hdf(file_path,start_list,aux_chan_list,duration_tf,args.filter_length)
 
 logging.info("Saving file to %s" % str(file_path))
 
 #loops through given start time list, calculating set of 
 #transfer functions for each chunk
 for tf_start in start_list:
-    plogging.info("Calculating TFs start at: {}".format(tf_start))
+    logging.info("Calculating TFs start at: {}".format(tf_start))
     st = tf_start
     ed = st + duration_tf
 
@@ -157,30 +168,32 @@ for tf_start in start_list:
         
         #Read in data, set up parameters of measurement
         logging.info("  reading data...")
-        data, aux_data = asd2.read_in(st,ed,aux_chan,bandpass_cut,ifo,
+        data, aux_data = crosstalk.read_in(st,ed,aux_chan,bandpass_cut,ifo,
                                       strain_frame_type=args.input_frame_type,
                                       strain_channel=args.input_channel)
         if args.gate_file:
-            data = asd2.apply_gate(data, gate_params)
+            data = crosstalk.apply_gate(data, gate_params)
         tf_sample_rate = min([aux.sample_rate for aux in aux_data])
-        tf_high_freq = min(1000,1000*tf_sample_rate/2048)
-        if group_name == 'cal1':
-            tf_high_freq = 1200
+        if args.upper_frequency:
+            tf_high_freq = float(tf_high_freq)
+        else: 
+            tf_high_freq = 1000*tf_sample_rate/2048
         
         #Bandpass data
         logging.info("  bandpassing data...")
-        data_bp = (asd2.bp_chunk(data,tf_sample_rate,tf_low_freq+8,tf_high_freq-20))
-        aux_bp = [asd2.bp_chunk(data_series,tf_sample_rate,tf_low_freq,tf_high_freq) for data_series in aux_data]
+        data_bp = (crosstalk.bp_chunk(data,tf_sample_rate,tf_low_freq+8,tf_high_freq-20))
+        aux_bp = [crosstalk.bp_chunk(data_series,tf_sample_rate,tf_low_freq,tf_high_freq) for data_series in aux_data]
         
         # calculate inner product terms
         logging.info("  calculating TFs...")
-        tf_list_lines = [asd2.avg_inner_product(data_bp, data_series,new_df=filter_df) for data_series in aux_bp]
-        tf_list = [asd2.remove_line(data_series,lines) for data_series in tf_list_lines]
+        tf_list_lines = [crosstalk.avg_inner_product(data_bp, data_series,new_df=filter_df, tol=tolerance) for data_series in aux_bp]
+        tf_list = [crosstalk.remove_line(data_series,lines) for data_series in tf_list_lines]
 
         #detangle the transfer functions
         logging.info("  detangling TFs...")
-        corr_dict, chan_dict = asd2.correlation_matrix(aux_bp,aux_chan,df=filter_df)
-        det_tf = asd2.detangle_tf(corr_dict, chan_dict, tf_list)
+        corr_dict, chan_dict = crosstalk.correlation_matrix(aux_bp,aux_chan,df=filter_df,
+                                                            tol=tolerance,max_freq=tf_high_freq+100)
+        det_tf = crosstalk.detangle_tf(corr_dict, chan_dict, tf_list)
 
         #add transfer functions for aux group to 
         #full list of TFs
@@ -189,6 +202,6 @@ for tf_start in start_list:
 
     #append set of transfer functions for this period
     #to hdf file
-    asd2.append_tf_hdf(file_path,tf_start,aux_chan_list,full_tf_list)
+    crosstalk.append_tf_hdf(file_path,tf_start,aux_chan_list,full_tf_list)
     logging.info('Transfer function file {} is written!'.format(file_path))
 

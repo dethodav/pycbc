@@ -1,0 +1,72 @@
+#!/usr/bin/env python
+
+# Copyright (C) 2017 Derek Davis and TJ Massinger
+#
+# This program is free software; you can redistribute it and/or modify it
+# under the terms of the GNU General Public License as published by the
+# Free Software Foundation; either version 3 of the License, or (at your
+# option) any later version.
+#
+# This program is distributed in the hope that it will be useful, but
+# WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General
+# Public License for more details.
+#
+# You should have received a copy of the GNU General Public License along
+# with this program; if not, write to the Free Software Foundation, Inc.,
+# 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
+
+import matplotlib
+matplotlib.use('Agg')
+from gwpy.frequencyseries import FrequencySeries
+from gwpy.plotter import BodePlot
+from gwpy.plotter.tex import label_to_latex
+import argparse
+
+import numpy as np
+from pycbc.filter import crosstalk
+
+parser = argparse.ArgumentParser()
+parser.add_argument('--tf-file', nargs='+', help = 'List of hdf transfer functions to plot')
+parser.add_argument('--channel', help = 'Channel to plot in hdf file')
+parser.add_argument('--ymax', type=float, help = 'Y-axis amplitude maximum value')
+parser.add_argument('--ymin', type=float, help = 'Y-axis amplitude minimum value')
+parser.add_argument('--xmax', type=float, help = 'X-axis maximum value')
+parser.add_argument('--xmin', type=float, help = 'X-axis minimum value')
+parser.add_argument('--outfile', help = 'Filename to save image')
+parser.add_argument('--gps-start-time', default=0, help = 'GPS start time')
+parser.add_argument('--gps-end-time', default=1e12, help = 'GPS end time')
+parser.add_argument('--decimation-factor', help = 'Factor to sample series to reduce plot size')
+args = parser.parse_args()
+
+start_data = args.gps_start_time
+end_data = args.gps_end_time
+
+plot = BodePlot(dB=False)
+lbl = label_to_latex(args.channel)
+plot.maxes.set_title(lbl)
+
+use_val = 0
+
+for f in args.tf_file:
+    #read in file generically
+    tf_dict,base_start_list,base_aux_chan_list,base_duration_tf,base_filter_length = crosstalk.read_tf_hdf(f,start_data,end_data)
+    #index = [x for x in base_aux_chan_list if x == args.channel][0]
+    index = np.where(base_aux_chan_list == args.channel)[0][0]
+    print index
+    for time in base_start_list:
+        if use_val == 0:
+             tf_to_plot = tf_dict[time][:][index]
+             freq_series = FrequencySeries(tf_to_plot,df=tf_to_plot.delta_f)
+             plot.add_frequencyseries(freq_series, dB = False, alpha=0.2, color='b')
+        if args.decimation_factor:
+            use_val = np.random.randint(0,int(args.decimation_factor))
+
+ax = plot.axes[0]
+ax.set_yscale('log')
+if args.ymin and args.ymax:
+    ax.set_ylim(args.ymin, args.ymax)
+if args.xmin and args.xmax:
+    ax.set_xlim(args.xmin, args.xmax)
+    plot.axes[1].set_xlim(args.xmin, args.xmax)
+plot.savefig(args.outfile)
