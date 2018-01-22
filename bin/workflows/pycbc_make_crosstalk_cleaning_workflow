@@ -149,6 +149,28 @@ def create_plot_tf_node(workflow, channel, tf_file_list, outdir, ifo, extra_tags
     workflow += node
     return node.output_files[0]
 
+class PlotPercentileExecutable(Executable):
+    """Class for running pycbc_subtract_noise
+    """
+    current_retention_level = Executable.FINAL_RESULT
+
+def create_plot_spectrum_node(workflow, segment, channel, outdir, ifo, extra_tags=None):
+    if extra_tags is None:
+        extra_tags = []
+    exe = PlotPercentileExecutable(
+               workflow.cp, 'pycbc_plot_percentile_spectrum',
+               ifos=ifo, out_dir=outdir,
+               tags=extra_tags)
+    node = exe.create_node()
+    node.add_opt('--gps-start-time', segment[0])
+    node.add_opt('--gps-end-time', segment[1])
+    node.add_opt('--channel', channel)
+    node.add_opt('--ifo', ifo)
+    node.add_opt('--frame-type', ifo+'_R')
+    node.new_output_file_opt(segment, '.png', '--outfile', tags=extra_tags)
+    workflow += node
+    return node.output_files[0]
+
 def symlink_path(f, path):
     if f is None:
         return
@@ -180,8 +202,8 @@ finalize_workflow = pycbc.workflow.Workflow(args, args.workflow_name + '-finaliz
 
 os.chdir(args.output_dir)
 
-rdir = layout.SectionNumber('results', ['analysis_time', 'detector_sensitivity', 'individual_frames', 
-                                        'transfer_functions', 'workflow'])
+rdir = layout.SectionNumber('results', ['analysis_time', 'detector_sensitivity', 
+                                        'transfer_functions', 'spectrum_thresholds','workflow'])
 
 pycbc.workflow.makedir(rdir.base)
 pycbc.workflow.makedir(rdir['workflow'])
@@ -348,6 +370,7 @@ for ifo, segments in analyzable_segs.items():
 
 # Now set up results page jobs with finalized files
 
+# set up strain spectrum and range plots
 logging.info('Setting up summary plots`')
 pycbc.workflow.makedir(rdir['detector_sensitivity'])
 spec_plot = pycbc.workflow.make_spectrum_plot(workflow, psd_files, rdir['detector_sensitivity'])
@@ -359,6 +382,17 @@ range_plot_other = pycbc.workflow.make_range_plot(workflow, psd_files, rdir['det
 det_summ = [(spec_plot, range_plot_summ[0] if len(range_plot_summ) != 0 else None)]
 layout.two_column_layout(rdir['detector_sensitivity'],
                      det_summ + list(layout.grouper(range_plot_other, 2)))
+
+############################## Setup the transfer function plots #######################
+
+# set up threshold spectrum plots for each day
+threshold_plots = {}
+# s and e are analysis start and end times
+s_utc_day = int(''.join(map(str,lal.GPSToUTC(s)[0:3])))
+e_utc_day = int(''.join(map(str,lal.GPSToUTC(e)[0:3])))
+day_cut_utc = range(s_utc_day,e_utc_day+1)
+day_cut_gps = [lal.UTCGPS(date[0:4], date[4], date[5], 0, 0, 0, 0, 0, 0) for date in day_cut_utc[1:]]
+full_day_list = sorted([s,e]+day_cut_gps)
 
 #set up tranfer function jobs
 for aux_group in workflow.cp.get_subsections('aux_channels'):
@@ -375,7 +409,23 @@ for aux_group in workflow.cp.get_subsections('aux_channels'):
                   tf_dir, sing_ifo, extra_tags=[aux_group,channel[3:]])
         tf_plot_list += [(tf_plot,)]
         two_column_layout(tf_dir,tf_plot_list)
+        #run through the day list, and also make a plot with the thresholding
+        for day_number in range(len(day_cut_utc)):
+            day_val = day_cut_utc[day_number]
+            plot_segment = pycbc_glue.segments.segment(full_day_list[day_number], full_day_list[day_number+1])
+            thresh_plot_dir = rdir['spectrum_thresholds/'+str(day_val)]
+            if day_val not in threshold_plots:
+                threshold_plots[day_val] = []
+                pycbc.workflow.makedir(thresh_plot_dir)
+            threshold_plot = create_plot_spectrum_node(workflow, plot_segment, channel, thresh_plot_dir, sing_ifo, extra_tags=[aux_group,channel[3:]])
+            threshold_plots[day_val].append(threshold_plot)
 
+# now make summary page threshold plots
+for day_val in threshold_plots:
+    thresh_summ = list(layout.grouper(threshold_plots[day_val], 2))
+    layout.two_column_layout(rdir['spectrum_thresholds/'+str(day_val)], thresh_summ)
+
+############################## Setup the segment information #######################
 
 # get data segments to write to segment summary XML file
 seg_summ_names    = ['DATA', 'SCIENCE_OK', 'ANALYZABLE_DATA', 'FRAMES_PRODUCED']

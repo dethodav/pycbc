@@ -1,0 +1,101 @@
+#!/bin/env python
+
+import matplotlib
+import numpy as np
+matplotlib.use('Agg')
+import matplotlib.pyplot as plt
+import argparse
+import logging
+from gwpy.timeseries import TimeSeries
+from gwpy.plotter import FrequencySeriesPlot
+
+plt.rc('text', usetex=True)
+plt.rc('font', **{'family': 'serif', 'serif': ['Computer Modern']})
+plt.rc('axes', labelsize=18.0)
+plt.rc('xtick', labelsize=15.0)
+plt.rc('ytick', labelsize=15.0)
+plt.rc('figure', dpi=300)
+
+parser = argparse.ArgumentParser()
+parser.add_argument('--gps-start-time', type=float, 
+                    help='GPS start time for reading data')
+parser.add_argument('--gps-end-time', type=float,
+                    help='GPS end time for reading data')
+parser.add_argument('--outfile', help='Output file to write to, name will be '
+                    'generated if not provided')
+parser.add_argument('--frame-type', help='Frame type to read from if a frame cache '
+                    'is not provided')
+parser.add_argument('--frame-cache', help='Path to frame cache')
+parser.add_argument('--ifo', help='H1 or L1')
+parser.add_argument('--tolerance', type=float,
+                    help='If provided, will plot max(PSD)*tolerance as horizontal line ')
+parser.add_argument('--ymin', type=float, help='Y-min for plot')
+parser.add_argument('--ymax', type=float, help='Y-max for plot')
+parser.add_argument('--xmin', type=float, help='X-min for plot')
+parser.add_argument('--xmax', type=float, help='X-max for plot')
+parser.add_argument('--channel', help='Channel to use in PSD calculation')
+parser.add_argument('--rescale-psd', action='store_true', help='Rescale PSD to match inner product scaling')
+parser.add_argument('--xscale', default='log', choices=['log', 'linear'],
+                    help='Scale for x-axis')
+args = parser.parse_args()
+
+logging.basicConfig(format="%(asctime)s : %(message)s", level=logging.DEBUG)
+
+logging.info('Reading data')
+
+if args.frame_type:
+    data = TimeSeries.find('%s:%s' % (args.ifo, args.channel),
+                           start = args.gps_start_time, end = args.gps_end_time,
+                           frametype=args.frame_type)
+elif args.frame_cache:
+    data = TimeSeries.read(args.frame_cache, channel='%s:%s' % (args.ifo, args.channel),
+                           start = args.gps_start_time, end = args.gps_end_time)
+else:
+    raise ValueError('One of frame type or frame cache must be specified')
+
+logging.info('Calculating PSDs')
+
+if args.rescale_psd:
+    rescale = 1./(data.duration.value*(data.sample_rate.value**2))
+else:
+    rescale = 1.
+
+specgram = data.spectrogram(32,16)/rescale
+specgram_median = specgram.percentile(50)
+specgram_min = specgram.percentile(5)
+specgram_max = specgram.percentile(95)
+
+logging.info('Plotting')
+
+if args.ymin:
+    ymin = args.ymin
+else:
+    ymin = min(specgram_min.value)*0.9
+
+if args.ymax:
+    ymax = args.ymax
+else:
+    ymax = max(specgram_max.value)*1.1
+
+if args.xmin:
+    xmin = args.xmin
+else:
+    xmin = 10.
+
+if args.xmax:
+    xmax = args.xmax
+else:
+    xmax = max(specgram.yindex.value)
+
+plot = FrequencySeriesPlot(figsize=(12,6))
+ax = plot.gca()
+ax.plot_frequencyseries_mmm(mean_=specgram_median, min_=specgram_min, max_=specgram_max)
+if args.tolerance:
+    ax.axhline(max(specgram_median.value)*args.tolerance, alpha=0.8)
+ax.set_xlim(xmin, xmax)
+ax.set_xscale(args.xscale)
+ax.set_ylim(ymin, ymax)
+ax.set_yscale('log')
+ax.set_ylabel('PSD [1/Hz]')
+ax.set_title(args.channel.replace('_','-'), fontsize=16.0)
+plot.savefig(args.outfile)
