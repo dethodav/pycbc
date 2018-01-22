@@ -191,9 +191,8 @@ for tf_start in start_list:
 
         #detangle the transfer functions
         logging.info("  detangling TFs...")
-        corr_dict, chan_dict = crosstalk.correlation_matrix(aux_bp,aux_chan,df=filter_df,
-                                                            tol=tolerance,max_freq=tf_high_freq+100)
-        det_tf = crosstalk.detangle_tf(corr_dict, chan_dict, tf_list)
+        corr_dict, chan_dict = crosstalk.correlation_matrix(aux_bp,aux_chan, df=filter_df, tol=tolerance)
+        det_tf = crosstalk.detangle_tf(corr_dict, chan_dict, tf_list, max_freq=tf_high_freq+100)
 
         #add transfer functions for aux group to 
         #full list of TFs
