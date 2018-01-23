@@ -386,13 +386,16 @@ layout.two_column_layout(rdir['detector_sensitivity'],
 # set up threshold spectrum plots for each day
 threshold_plots = {}
 # s and e are analysis start and end times
-s_utc_day = int(''.join([ z.zfill(2) for z in map(str,lal.GPSToUTC(s)[0:3])]))
-e_utc_day = int(''.join([ z.zfill(2) for z in map(str,lal.GPSToUTC(e)[0:3])]))
-day_cut_utc = range(s_utc_day,e_utc_day+1)
-day_cut_utc_seq = [(int(str(date)[0:4]), int(str(date)[4:6]), int(str(date)[6:8]), 0,0,0,0,0,0) for date in day_cut_utc[1:]]
-day_cut_gps = [lal.UTCToGPS(utc_seq) for utc_seq in day_cut_utc_seq]
-full_day_list = sorted([s,e]+day_cut_gps)
-logging.info('Days that thresholds will be tested are {}'.format(day_cut_utc))
+s_utc = lal.GPSToUTC(s)
+e_utc = lal.GPSToUTC(e)
+s_date = datetime.datetime(s_utc[0], s_utc[1], s_utc[2], 0,0,0,0)
+e_date = datetime.datetime(e_utc[0], e_utc[1], e_utc[2], 0,0,0,0)
+days_to_plot = [s_date + datetime.timedelta(days=x) for x in range((e_date-s_date).days + 1)]
+days_cut_utc = [(day.year,day.month,day.day,0,0,0,0,0,0) for day in days_to_plot]
+days_to_plot_int = [int(''.join([str(day.year),str(day.month).zfill(2),str(day.day).zfill(2)])) for day in days_to_plot] 
+days_cut_gps = [lal.UTCToGPS(utc_time) for utc_time in days_cut_utc]
+full_day_list = sorted([s,e]+days_cut_gps)
+logging.info('Days that thresholds will be tested are {}'.format(days_to_plot_int))
 
 #set up tranfer function jobs
 for aux_group in workflow.cp.get_subsections('aux_channels'):
@@ -410,8 +413,8 @@ for aux_group in workflow.cp.get_subsections('aux_channels'):
         tf_plot_list += [(tf_plot,)]
         two_column_layout(tf_dir,tf_plot_list)
         #run through the day list, and also make a plot with the thresholding
-        for day_number in range(len(day_cut_utc)):
-            day_val = day_cut_utc[day_number]
+        for day_number in range(len(days_to_plot_int)):
+            day_val = days_to_plot_int[day_number]
             plot_segment = pycbc_glue.segments.segment(full_day_list[day_number], full_day_list[day_number+1])
             thresh_plot_dir = rdir['spectrum_thresholds/'+str(day_val)]
             if day_val not in threshold_plots:
