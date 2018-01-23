@@ -8,6 +8,7 @@ import argparse
 import logging
 from gwpy.timeseries import TimeSeries
 from gwpy.plotter import FrequencySeriesPlot
+from gwpy.plotter.tex import label_to_latex
 
 plt.rc('text', usetex=True)
 plt.rc('font', **{'family': 'serif', 'serif': ['Computer Modern']})
@@ -26,7 +27,6 @@ parser.add_argument('--outfile', help='Output file to write to, name will be '
 parser.add_argument('--frame-type', help='Frame type to read from if a frame cache '
                     'is not provided')
 parser.add_argument('--frame-cache', help='Path to frame cache')
-parser.add_argument('--ifo', help='H1 or L1')
 parser.add_argument('--tolerance', type=float,
                     help='If provided, will plot max(PSD)*tolerance as horizontal line ')
 parser.add_argument('--ymin', type=float, help='Y-min for plot')
@@ -44,11 +44,11 @@ logging.basicConfig(format="%(asctime)s : %(message)s", level=logging.DEBUG)
 logging.info('Reading data')
 
 if args.frame_type:
-    data = TimeSeries.find('%s:%s' % (args.ifo, args.channel),
+    data = TimeSeries.find('%s' % (args.channel),
                            start = args.gps_start_time, end = args.gps_end_time,
                            frametype=args.frame_type)
 elif args.frame_cache:
-    data = TimeSeries.read(args.frame_cache, channel='%s:%s' % (args.ifo, args.channel),
+    data = TimeSeries.read(args.frame_cache, channel='%s' % (args.channel),
                            start = args.gps_start_time, end = args.gps_end_time)
 else:
     raise ValueError('One of frame type or frame cache must be specified')
@@ -97,5 +97,6 @@ ax.set_xscale(args.xscale)
 ax.set_ylim(ymin, ymax)
 ax.set_yscale('log')
 ax.set_ylabel('PSD [1/Hz]')
-ax.set_title(args.channel.replace('_','-'), fontsize=16.0)
+lbl = label_to_latex(args.channel)
+ax.set_title(lbl, fontsize=16.0)
 plot.savefig(args.outfile)
