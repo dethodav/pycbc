@@ -49,6 +49,12 @@ ap.add_argument('--output-frame-path', default='./NOISE_FRAME.gwf',
                 help='Location of output files')
 ap.add_argument('--output-frame-channel',
                 help='Name of strain channel in output file.')
+ap.add_argument('--hoft-frame-loc', default=None,
+                help='Location of input h(t) frames, either a location on disk'+
+                     ' or a frame cache')
+ap.add_argument('--aux-frame-loc', default=None,
+                help='Location of input aux channel frames, either a location on disk'+
+                     ' or a frame cache')
 ap.add_argument('--file-size',
                 help='Seconds per output file.')
 args = ap.parse_args()
@@ -89,7 +95,9 @@ for tf_start in start_list:
     logging.info("  reading data...")
     data, aux_data = crosstalk.read_in(st,ed,aux_chan_list,cut,ifo,
                                   strain_frame_type=args.input_frame_type,
-                                  strain_channel=args.input_channel)
+                                  strain_channel=args.input_channel,
+                                  hoft_location=args.hoft_frame_loc, 
+                                  aux_location=args.aux_frame_loc)
 
     #picks out which set of tf to use
     det_tf = tf_dict[tf_start]

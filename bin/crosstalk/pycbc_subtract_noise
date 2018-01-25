@@ -33,7 +33,7 @@ ap = ArgumentParser(description='Takes input transfer functions and cleans h(t)'
 ap.add_argument('--input-frame-file',
                 help='Path to file containing relevant input timeseries')
 ap.add_argument('--input-frame-type',
-                help='Type of frame file to use as input')
+                help='Type of frame file or cache to use as input')
 ap.add_argument('--ifo',required=True,
                 help='IFO')
 ap.add_argument('--input-channel',required=True,
@@ -60,12 +60,13 @@ if len(noise_channels) ==1:
 assert len(noise_frames) == len(noise_channels)
 
 #read in data from frame
+noise = frame.read_frame(noise_frames[0],'%s'%(noise_channels[0]))
 if args.input_frame_file:
     data = frame.read_frame(args.input_frame_file,'%s'%(args.input_channel))
+                            noise.start_time, noise.end_time,sieve='localhost')
 elif args.input_frame_type:
-    noise = frame.read_frame(noise_frames[0],'%s'%(noise_channels[0]))
     data = frame.query_and_read_frame(args.input_frame_type,
-               '%s'%(args.input_channel), noise.start_time, noise.end_time,sieve='hdfs')
+               '%s'%(args.input_channel), noise.start_time, noise.end_time,sieve='localhost')
 else:
     sys.exit("Need either input frame or input frame type.")
 noise_data = []

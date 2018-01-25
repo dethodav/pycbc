@@ -74,6 +74,12 @@ ap.add_argument('--input-channel',
                 help='Frame type of input strain')
 ap.add_argument('--upper-frequency',
                 help='Maximum frequency to calculate transfer function')
+ap.add_argument('--hoft-frame-loc', default=None,
+                help='Location of input h(t) frames, either a location on disk'+
+                     ' or a frame cache')
+ap.add_argument('--aux-frame-loc', default=None,
+                help='Location of input aux channel frames, either a location on disk'+
+                     ' or a frame cache')
 ap.add_argument('--tolerance',
                 help='Tolerance factor to use when calculating transfer functions.')
 ap.add_argument("-V", "--verbose", action="store_true",
@@ -170,7 +176,9 @@ for tf_start in start_list:
         logging.info("  reading data...")
         data, aux_data = crosstalk.read_in(st,ed,aux_chan,bandpass_cut,ifo,
                                       strain_frame_type=args.input_frame_type,
-                                      strain_channel=args.input_channel)
+                                      strain_channel=args.input_channel,
+                                      hoft_location=args.hoft_frame_loc,
+                                      aux_location=args.aux_frame_loc)
         if args.gate_file:
             data = crosstalk.apply_gate(data, gate_params)
         tf_sample_rate = min([aux.sample_rate for aux in aux_data])

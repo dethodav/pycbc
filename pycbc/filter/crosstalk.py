@@ -301,6 +301,7 @@ def apply_gate(timeseries, gate_params):
 def read_in(start, end, aux_chan_list, cut=1, ifo='H1',
             strain_frame_type='H1_HOFT_C00',
             strain_channel='GDS-CALIB_STRAIN',
+            hoft_location=None, aux_location=None,
             no_strain=False):
     """Reads in the needed set of strain and aux channels. 
 
@@ -309,15 +310,27 @@ def read_in(start, end, aux_chan_list, cut=1, ifo='H1',
     start_get = start - cut
     end_get = end + cut
     if no_strain == False:
-        data = frame.query_and_read_frame(strain_frame_type, 
-               '%s'%(strain_channel), start_get, end_get,sieve='hdfs')
+        if hoft_location is not None:
+            data = frame.read_frame(hoft_location, '%s:%s' % (ifo, strain_channel), 
+                                    start_time = start_get, end_time = end_get)
+        else:
+            data = frame.query_and_read_frame(strain_frame_type,
+               '%s'%(strain_channel), start_get, end_get,sieve='localhost')
+
     else:
         data = None
     aux = []
     channels = ['%s' % (chan) for chan in aux_chan_list]
-    multitimeseries = frame.query_and_read_frame(ifo + "_R",
-                                    channels,
-                                    start_get, end_get,sieve='hdfs')
+    if aux_location is not None:
+        multitimeseries = frame.query_and_read_frame(aux_location,
+                                                     channels,
+                                                     start_time=start_get, 
+                                                     end_time=end_get)
+    else:
+        multitimeseries = frame.query_and_read_frame(ifo + "_R",
+                                                     channels,
+                                                     start_get, 
+                                                     end_get,sieve='localhost')
     return data, multitimeseries
 
 def add_buffer(clean_data_chunk, prev_buffer=None, dur=1024,
