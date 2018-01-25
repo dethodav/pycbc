@@ -149,27 +149,6 @@ def create_plot_tf_node(workflow, channel, tf_file_list, outdir, ifo, extra_tags
     workflow += node
     return node.output_files[0]
 
-class PlotPercentileExecutable(Executable):
-    """Class for running pycbc_subtract_noise
-    """
-    current_retention_level = Executable.FINAL_RESULT
-
-def create_plot_spectrum_node(workflow, segment, channel, outdir, ifo, extra_tags=None):
-    if extra_tags is None:
-        extra_tags = []
-    exe = PlotPercentileExecutable(
-               workflow.cp, 'pycbc_plot_percentile_spectrum',
-               ifos=ifo, out_dir=outdir,
-               tags=extra_tags)
-    node = exe.create_node()
-    node.add_opt('--gps-start-time', segment[0])
-    node.add_opt('--gps-end-time', segment[1])
-    node.add_opt('--channel', channel)
-    node.add_opt('--frame-type', ifo+'_R')
-    node.new_output_file_opt(segment, '.png', '--outfile', tags=extra_tags)
-    workflow += node
-    return node.output_files[0]
-
 def symlink_path(f, path):
     if f is None:
         return
@@ -202,7 +181,7 @@ finalize_workflow = pycbc.workflow.Workflow(args, args.workflow_name + '-finaliz
 os.chdir(args.output_dir)
 
 rdir = layout.SectionNumber('results', ['analysis_time', 'detector_sensitivity', 
-                                        'transfer_functions', 'spectrum_thresholds','workflow'])
+                                        'transfer_functions','workflow'])
 
 pycbc.workflow.makedir(rdir.base)
 pycbc.workflow.makedir(rdir['workflow'])
@@ -383,20 +362,6 @@ layout.two_column_layout(rdir['detector_sensitivity'],
 
 ############################## Setup the transfer function plots #######################
 
-# set up threshold spectrum plots for each day
-threshold_plots = {}
-# s and e are analysis start and end times
-s_utc = lal.GPSToUTC(s)
-e_utc = lal.GPSToUTC(e)
-s_date = datetime.datetime(s_utc[0], s_utc[1], s_utc[2], 0,0,0,0)
-e_date = datetime.datetime(e_utc[0], e_utc[1], e_utc[2], 0,0,0,0)
-days_to_plot = [s_date + datetime.timedelta(days=x) for x in range((e_date-s_date).days + 1)]
-days_cut_utc = [(day.year,day.month,day.day,0,0,0,0,0,0) for day in days_to_plot]
-days_to_plot_int = [int(''.join([str(day.year),str(day.month).zfill(2),str(day.day).zfill(2)])) for day in days_to_plot] 
-days_cut_gps = [lal.UTCToGPS(utc_time) for utc_time in days_cut_utc]
-full_day_list = sorted([s,e]+days_cut_gps)
-logging.info('Days that thresholds will be tested are {}'.format(days_to_plot_int))
-
 #set up tranfer function jobs
 for aux_group in workflow.cp.get_subsections('aux_channels'):
     if aux_group not in merged_tf_files:
@@ -412,21 +377,6 @@ for aux_group in workflow.cp.get_subsections('aux_channels'):
                   tf_dir, sing_ifo, extra_tags=[aux_group,channel[3:]])
         tf_plot_list += [(tf_plot,)]
         two_column_layout(tf_dir,tf_plot_list)
-        #run through the day list, and also make a plot with the thresholding
-        for day_number in range(len(days_to_plot_int)):
-            day_val = days_to_plot_int[day_number]
-            plot_segment = pycbc_glue.segments.segment(full_day_list[day_number], full_day_list[day_number+1])
-            thresh_plot_dir = rdir['spectrum_thresholds/'+str(day_val)]
-            if day_val not in threshold_plots:
-                threshold_plots[day_val] = []
-                pycbc.workflow.makedir(thresh_plot_dir)
-            threshold_plot = create_plot_spectrum_node(workflow, plot_segment, channel, thresh_plot_dir, sing_ifo, extra_tags=[aux_group,channel[3:]])
-            threshold_plots[day_val].append(threshold_plot)
-
-# now make summary page threshold plots
-for day_val in threshold_plots:
-    thresh_summ = list(layout.grouper(threshold_plots[day_val], 2))
-    layout.two_column_layout(rdir['spectrum_thresholds/'+str(day_val)], thresh_summ)
 
 ############################## Setup the segment information #######################
 
