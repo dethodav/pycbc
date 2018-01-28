@@ -38,7 +38,8 @@ class CrosstalkTransferFunctionExecutable(Executable):
     """
     current_retention_level = Executable.INTERMEDIATE_PRODUCT
 
-def create_tf_node(workflow, segment, aux_group, gate_file, ifo, extra_tags=None):
+def create_tf_node(workflow, segment, aux_group, gate_file, 
+                  ifo, hoft_data_cache, aux_data_cache, extra_tags=None):
     if extra_tags is None:
         extra_tags = []
     make_analysis_dir('tf_files')
@@ -57,6 +58,8 @@ def create_tf_node(workflow, segment, aux_group, gate_file, ifo, extra_tags=None
     duration = segment[1] - segment[0]-4
     node.add_opt('--tf-dur', duration)
     node.add_input_opt('--gate-file', gate_file)
+    node.add_input_list_opt('--hoft-frame-loc', hoft_data_cache)
+    node.add_input_list_opt('--aux-frame-loc', aux_data_cache)
 
     filter_length = workflow.cp.get('aux_channels-'+aux_group,'filter-length')
     if duration < int(filter_length):
@@ -237,7 +240,14 @@ sci_ok_seg_file, science_ok_segs, sci_ok_seg_name = \
 datafind_files, analyzable_file, analyzable_segs, analyzable_name = \
         pycbc.workflow.setup_datafind_workflow(workflow, science_ok_segs,
                                                'datafind',
-                                               seg_file=science_seg_file)
+                                               seg_file=science_seg_file, 
+                                               tags = ['hoft'])
+
+datafind_files_aux, _, _, _ = \
+        pycbc.workflow.setup_datafind_workflow(workflow, science_ok_segs,
+                                               'datafind',
+                                               seg_file=science_seg_file, 
+                                               tags = ['aux'])
 
 # get gating file
 gate_files = pycbc.workflow.setup_gating_workflow(workflow, output_dir="gating")
@@ -298,7 +308,8 @@ for ifo, segments in analyzable_segs.items():
 
             for start_time in tf_start_list:
                 segment_dur = pycbc_glue.segments.segment(start_time-2, start_time + duration_tf+2)
-                hdf_tf_file = create_tf_node(workflow, segment_dur, aux_group, gate_files[0], sing_ifo, extra_tags=[aux_group])
+                hdf_tf_file = create_tf_node(workflow, segment_dur, aux_group, gate_files[0], sing_ifo, 
+                                             datafind_files, datafind_files_aux, extra_tags=[aux_group])
                 tf_files.append(hdf_tf_file)
 
             #Now run the merge job

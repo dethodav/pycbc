@@ -311,8 +311,9 @@ def read_in(start, end, aux_chan_list, cut=1, ifo='H1',
     end_get = end + cut
     if no_strain == False:
         if hoft_location is not None:
-            data = frame.read_frame(hoft_location, '%s:%s' % (ifo, strain_channel), 
-                                    start_time = start_get, end_time = end_get)
+            data = frame.read_frame(hoft_location, '%s' % (strain_channel), 
+                                    start_time = start_get, end_time = end_get,
+                                    check_integrity=False)
         else:
             data = frame.query_and_read_frame(strain_frame_type,
                '%s'%(strain_channel), start_get, end_get,sieve='localhost')
@@ -322,10 +323,9 @@ def read_in(start, end, aux_chan_list, cut=1, ifo='H1',
     aux = []
     channels = ['%s' % (chan) for chan in aux_chan_list]
     if aux_location is not None:
-        multitimeseries = frame.query_and_read_frame(aux_location,
-                                                     channels,
-                                                     start_time=start_get, 
-                                                     end_time=end_get)
+        multitimeseries = frame.read_frame(aux_location, channels,
+                                           start_time=start_get, end_time=end_get,
+                                           check_integrity=False)
     else:
         multitimeseries = frame.query_and_read_frame(ifo + "_R",
                                                      channels,
