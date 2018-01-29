@@ -43,7 +43,7 @@ ap.add_argument('--ifo',required=True,
                 help='IFO')
 ap.add_argument('--input-channel',required=True,
                 help='Strain channel to read')
-ap.add_argument('--input-frame-type',
+ap.add_argument('--input-frame-type', default=None,
                 help='Type of frame file to use as input')
 ap.add_argument('--output-frame-path', default='./NOISE_FRAME.gwf',
                 help='Location of output files')
@@ -83,7 +83,7 @@ logging.info("Times to use are: {}".format(start_list))
 #Clean each chunk seperately
 #will be added together at end
 for tf_start in start_list:
-    logging.info("Working on data starting at:".format(tf_start))
+    logging.info("Working on data starting at: {}".format(tf_start))
  
     #sets time for start and end
     st = tf_start
@@ -93,6 +93,10 @@ for tf_start in start_list:
 
     #Grab data - This is all based on gwpy reading methods - MAKE AS A FUNCTION - ONLY READ IN NEEDED DATA
     logging.info("  reading data...")
+    if args.hoft_frame_loc:
+        logging.info("  using hoft cache from {}".format(args.hoft_frame_loc))
+    if args.aux_frame_loc:
+        logging.info("  using aux cache from {}".format(args.aux_frame_loc))
     data, aux_data = crosstalk.read_in(st,ed,aux_chan_list,cut,ifo,
                                   strain_frame_type=args.input_frame_type,
                                   strain_channel=args.input_channel,

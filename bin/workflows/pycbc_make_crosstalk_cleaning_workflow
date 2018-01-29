@@ -93,7 +93,8 @@ class CrosstalkProjectNoiseExecutable(Executable):
     """
     current_retention_level = Executable.ALL_TRIGGERS
 
-def create_project_noise_node(workflow, segment, tf_file, ifo, extra_tags=None):
+def create_project_noise_node(workflow, segment, tf_file, ifo, 
+                              hoft_data_cache, aux_data_cache, extra_tags=None):
     if extra_tags is None:
         extra_tags = []
     make_analysis_dir('noise_data')
@@ -105,6 +106,8 @@ def create_project_noise_node(workflow, segment, tf_file, ifo, extra_tags=None):
     node.add_opt('--gps-start-time', segment[0])
     node.add_opt('--gps-end-time', segment[1])
     node.add_input_opt('--tf-file', tf_file)
+    node.add_input_list_opt('--hoft-frame-loc', hoft_data_cache)
+    node.add_input_list_opt('--aux-frame-loc', aux_data_cache)
     node.new_output_file_opt(segment, '.gwf', '--output-frame-path', tags=extra_tags) 
     workflow += node
     return node.output_files[0]
@@ -114,7 +117,8 @@ class CrosstalkSubtractNoiseExecutable(Executable):
     """
     current_retention_level = Executable.FINAL_RESULT
 
-def create_merged_frame_node(workflow, segment, noise_file_list, ifo, extra_tags=None):
+def create_merged_frame_node(workflow, segment, noise_file_list, ifo, 
+                             hoft_data_cache, extra_tags=None):
     if extra_tags is None:
         extra_tags = []
     make_analysis_dir('output_frame_files')
@@ -124,6 +128,7 @@ def create_merged_frame_node(workflow, segment, noise_file_list, ifo, extra_tags
                tags=extra_tags)
     node = exe.create_node()
     node.add_input_list_opt('--noise-frame-file', noise_file_list) 
+    node.add_input_list_opt('--input-frame-file', hoft_data_cache)
     store_file = node.executable.retain_files
     frame_type = workflow.cp.get('workflow-frames','output-frame-type') 
     fil = File(ifo[0], frame_type,
@@ -242,12 +247,14 @@ datafind_files, analyzable_file, analyzable_segs, analyzable_name = \
                                                'datafind',
                                                seg_file=science_seg_file, 
                                                tags = ['hoft'])
+# setup aux cache
+full_segs = {}
+for ifo in workflow.ifos:
+    full_segs[ifo] = pycbc_glue.segments.segmentlist([workflow.analysis_time.protract(1000)])
 
 datafind_files_aux, _, _, _ = \
-        pycbc.workflow.setup_datafind_workflow(workflow, science_ok_segs,
-                                               'datafind',
-                                               seg_file=science_seg_file, 
-                                               tags = ['aux'])
+        pycbc.workflow.setup_datafind_workflow(workflow, full_segs,
+                                               'datafind', tags = ['aux'])
 
 # get gating file
 gate_files = pycbc.workflow.setup_gating_workflow(workflow, output_dir="gating")
@@ -323,7 +330,9 @@ for ifo, segments in analyzable_segs.items():
             for start_time in frame_start_list:
                 end_time = min(start_time+frame_duration,seg[1])
                 frame_segment = pycbc_glue.segments.segment(start_time, end_time)
-                frame_file = create_project_noise_node(workflow, frame_segment, merged_hdf_tf_file, sing_ifo, extra_tags=[aux_group])
+                frame_file = create_project_noise_node(workflow, frame_segment, merged_hdf_tf_file, 
+                                                       sing_ifo, datafind_files, datafind_files_aux, 
+                                                       extra_tags=[aux_group])
                 if start_time not in frame_files:
                     frame_files[start_time] = []
                 frame_files[start_time].append(frame_file)
@@ -331,7 +340,8 @@ for ifo, segments in analyzable_segs.items():
         for frame_time in frame_files:
             end_time = min(frame_time+frame_duration,seg[1])
             frame_segment = pycbc_glue.segments.segment(frame_time, end_time)
-            merged_frame_file = create_merged_frame_node(workflow, frame_segment, frame_files[frame_time], sing_ifo, extra_tags=None)
+            merged_frame_file = create_merged_frame_node(workflow, frame_segment, frame_files[frame_time], 
+                                                         sing_ifo, datafind_files, extra_tags=None)
             finalized_frame_files.append(merged_frame_file)
             if ifo not in finalized_frame_segments:
                 finalized_frame_segments[ifo] = pycbc_glue.segments.segmentlist()
