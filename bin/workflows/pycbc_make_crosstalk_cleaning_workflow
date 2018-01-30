@@ -85,6 +85,10 @@ def create_merged_tf_node(workflow, segment, tf_file_list, ifo, extra_tags=None)
     node = exe.create_node()
     node.add_input_list_opt('--hdf-tf-file', tf_file_list)
     node.new_output_file_opt(segment, '.hdf', '--output-hdf-file')
+    if workflow.cp.has_option_tags('pegasus_disk_space','pycbc_merge_tf', tags=extra_tags): 
+        size_per_day = int(workflow.cp.get_opt_tags('pegasus_disk_space','pycbc_merge_tf', tags=extra_tags))
+        total_size = size_per_day * int(abs(segment))/86400
+        node.set_storage(int(total_size))
     workflow += node
     return node.output_files[0]
 
