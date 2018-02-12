@@ -344,6 +344,7 @@ def add_buffer(clean_data_chunk, prev_buffer=None, dur=1024,
 
     Overlap-add is accomplished via a hann windowing on each section. 
     """
+    dur = float(dur)
     strain_sample_rate = clean_data_chunk.sample_rate
     phase = np.linspace(0, np.pi/2, num=strain_sample_rate*dur/2)
 
