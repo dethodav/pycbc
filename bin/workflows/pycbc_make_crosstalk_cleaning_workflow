@@ -246,6 +246,7 @@ sci_ok_seg_file, science_ok_segs, sci_ok_seg_name = \
         pycbc.workflow.get_analyzable_segments(workflow, science_segs,
                                                 veto_cat_files, seg_dir)
 
+logging.info("Finding hoft files")
 datafind_files, analyzable_file, analyzable_segs, analyzable_name = \
         pycbc.workflow.setup_datafind_workflow(workflow, science_ok_segs,
                                                'datafind',
@@ -256,6 +257,7 @@ full_segs = {}
 for ifo in workflow.ifos:
     full_segs[ifo] = pycbc_glue.segments.segmentlist([workflow.analysis_time.protract(1000)])
 
+logging.info("Finding aux files")
 datafind_files_aux, _, _, _ = \
         pycbc.workflow.setup_datafind_workflow(workflow, full_segs,
                                                'datafind', tags = ['aux'])
@@ -271,6 +273,23 @@ layout.single_layout(rdir['analysis_time/veto_definer'], ([vetodef_table]))
 
 # Set up noise removal workflow
 
+# Remove channel groups that are not valid anywhere
+
+for aux_group in workflow.cp.get_subsections('aux_channels'):
+    if workflow.cp.has_option_tags('valid_times-'+aux_group, 'gps-start-time', tags=None):
+        valid_start = int(workflow.cp.get_opt_tags('valid_times-'+aux_group,
+                                         'gps-start-time', tags=None))
+        valid_end = int(workflow.cp.get_opt_tags('valid_times-'+aux_group,
+                                         'gps-end-time', tags=None))
+        valid_segment = pycbc_glue.segments.segment(valid_start, valid_end)
+        if (valid_segment.intersects(workflow.analysis_time)) == False:
+            logging.warning('Aux group {} not valid during analysis period'.format(aux_group))
+            logging.warning('REMOVING aux group {} from channel groups'.format(aux_group))
+            workflow.cp.remove_section('aux_channels-'+aux_group)
+
+
+# create jobs for valid segments 
+
 sing_ifo = workflow.ifos[0]
 
 finalized_frame_files = []
@@ -282,6 +301,10 @@ data_analysed_name = 'FRAME_PRODUCED'
 
 for ifo, segments in analyzable_segs.items():
     for seg in segments:
+        min_seg_len = int(workflow.cp.get('workflow-frames','min-segment-length'))
+        if (abs(seg) < min_seg_len):
+            logging.warning('Segment is too short! Moving on')
+            continue
         frame_files = {}
          
         frame_duration = int(workflow.cp.get('pycbc_project_noise_from_tf','file-size'))
@@ -391,6 +414,9 @@ layout.two_column_layout(rdir['detector_sensitivity'],
 for aux_group in workflow.cp.get_subsections('aux_channels'):
     if aux_group not in merged_tf_files:
         logging.warning('Aux group {} has no transfer functions to plot'.format(aux_group))
+        continue
+    if aux_group not in workflow.cp.get_subsections('pycbc_plot_tf'):
+        logging.warning('No plotting section for aux group {}, skipping'.format(aux_group))
         continue
     tf_plot_list = []
     tf_dir = rdir['transfer_functions/%s'%aux_group]
